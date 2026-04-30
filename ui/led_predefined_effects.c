@@ -35,7 +35,11 @@
 
 #define LED_EFFECT_PERIOD_BREATHING     (128)
 const led_sequence_t led_effect_breathing = {
+#if defined(AM_PART_APOLLO3) || defined(AM_PART_APOLLO3P)
     .ui32Clock = AM_HAL_CTIMER_XT_DIV4,
+#elif defined(AM_PART_APOLLO510)
+    .ui32Clock = AM_HAL_TIMER_CLOCK_XT_DIV4,
+#endif
     .ui32Period = LED_EFFECT_PERIOD_BREATHING,
     .pui8Sequence = {
          1,   2,   2,   2,   3,   3,   4,   5,
@@ -59,7 +63,11 @@ const led_sequence_t led_effect_breathing = {
 
 #define LED_EFFECT_PERIOD_PULSE1        (16)
 const led_sequence_t led_effect_pulse1 = {
+#if defined(AM_PART_APOLLO3) || defined(AM_PART_APOLLO3P)
     .ui32Clock = AM_HAL_CTIMER_XT_256HZ,
+#elif defined(AM_PART_APOLLO510)
+    .ui32Clock = AM_HAL_TIMER_CLOCK_XT_DIV128,
+#endif
     .ui32Period = LED_EFFECT_PERIOD_PULSE1,
     .pui8Sequence = {
         16, 16,  0,  0,  0,  0,  0,  0,
@@ -69,7 +77,11 @@ const led_sequence_t led_effect_pulse1 = {
 
 #define LED_EFFECT_PERIOD_PULSE2        (16)
 const led_sequence_t led_effect_pulse2 = {
+#if defined(AM_PART_APOLLO3) || defined(AM_PART_APOLLO3P)
     .ui32Clock = AM_HAL_CTIMER_XT_256HZ,
+#elif defined(AM_PART_APOLLO510)
+    .ui32Clock = AM_HAL_TIMER_CLOCK_XT_DIV128,
+#endif
     .ui32Period = LED_EFFECT_PERIOD_PULSE2,
     .pui8Sequence = {
         16, 16,  0, 16, 16,  0,  0,  0,
@@ -79,7 +91,11 @@ const led_sequence_t led_effect_pulse2 = {
 
 #define LED_EFFECT_PERIOD_PULSE3        (20)
 const led_sequence_t led_effect_pulse3 = {
+#if defined(AM_PART_APOLLO3) || defined(AM_PART_APOLLO3P)
     .ui32Clock = AM_HAL_CTIMER_XT_256HZ,
+#elif defined(AM_PART_APOLLO510)
+    .ui32Clock = AM_HAL_TIMER_CLOCK_XT_DIV128,
+#endif
     .ui32Period = LED_EFFECT_PERIOD_PULSE3,
     .pui8Sequence = {
         20, 20,  0,  0, 20, 20,  0,  0,
@@ -90,7 +106,11 @@ const led_sequence_t led_effect_pulse3 = {
 
 #define LED_EFFECT_PERIOD_SOS           (64)
 const led_sequence_t led_effect_sos = {
+#if defined(AM_PART_APOLLO3) || defined(AM_PART_APOLLO3P)
     .ui32Clock = AM_HAL_CTIMER_LFRC_512HZ,
+#elif defined(AM_PART_APOLLO510)
+    .ui32Clock = AM_HAL_TIMER_CLOCK_XT_512HZ,
+#endif
     .ui32Period = LED_EFFECT_PERIOD_SOS,
     .pui8Sequence = {
         64, 64,  0,  0, 64, 64,  0,  0,

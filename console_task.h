@@ -43,7 +43,8 @@ typedef enum
 } console_output_e;
 
 extern void console_task_create(uint32_t priority, console_output_e output);
-extern void console_print_prompt();
+extern void console_print_prompt(void);
+extern console_output_e console_output_get(void);
 
 #ifdef __cplusplus
 }

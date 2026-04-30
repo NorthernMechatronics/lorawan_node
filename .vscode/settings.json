@@ -9,6 +9,7 @@
     "cmake.configureArgs": [
         "-Wno-dev",
         "-DCMAKE_VARIANT_BSP=${variant:bsp}",
+        "-DBUILD_LORAWAN=ON",
     ],
     "cmake.generator": "Unix Makefiles"
 }

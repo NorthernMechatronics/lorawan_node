@@ -44,6 +44,7 @@
 #
 # *****************************************************************************
 
+import os.path
 import rsonlite
 from string import Template
 import re
@@ -92,8 +93,7 @@ def is_number(N):
         except ValueError:
             return False
 
-
-def write_c_files(input_file, src_version, create_c):
+def write_files(input_file, src_version, output_dir):
 
     global SrcVersion
 
@@ -103,13 +103,10 @@ def write_c_files(input_file, src_version, create_c):
     with open(input_file) as f:
         input_object = convert_rson(f.read())
 
-    if create_c:
-        write_c_file(input_object)
-    else:
-        write_h_file(input_object)
+    write_c_file(input_object, output_dir)
+    write_h_file(input_object, output_dir)
 
-
-def write_c_file(input_object):
+def write_c_file(input_object, output_dir):
 
     global SrcVersion
 
@@ -189,10 +186,12 @@ def write_c_file(input_object):
 
         pin_structs.append(pin_struct_template.substitute(**struct_mapping))
 
-    print(c_template.substitute(pin_structs='\n\n'.join(pin_structs)))
+    cfilename = os.path.join(output_dir, 'am_bsp_pins.c')
+    cfile = open(cfilename, 'w')
+    cfile.write(c_template.substitute(pin_structs='\n\n'.join(pin_structs)))
+    cfile.close()
 
-
-def write_h_file(input_object):
+def write_h_file(input_object, output_dir):
 
     # Make a list of new dictionaries with all default settings, and then
     # update them with the settings we found in the actual src file.
@@ -229,7 +228,10 @@ def write_h_file(input_object):
 
         pin_defines.append(h_define_template.substitute(**mapping).strip())
 
-    print(h_template.substitute(pin_defines='\n\n'.join(pin_defines)))
+    hfilename = os.path.join(output_dir, 'am_bsp_pins.h')
+    hfile = open(hfilename, 'w')
+    hfile.write(h_template.substitute(pin_defines='\n\n'.join(pin_defines)))
+    hfile.close()
 
 
 #******************************************************************************

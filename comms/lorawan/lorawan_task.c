@@ -84,18 +84,28 @@ static uint32_t lorawan_mac_pending;
 static TaskHandle_t lorawan_task_handle;
 static QueueHandle_t command_queue;
 static QueueHandle_t transmit_queue;
-static TimerHandle_t radio_port_timer;
 
 static LmHandlerParams_t lmh_parameters;
 static LmHandlerCallbacks_t lmh_callbacks;
 static LmhpFragmentationParams_t lmhp_fragmentation_parameters;
 
-static void radio_port_shutdown(TimerHandle_t timer)
+void lorawan_radio_port_power(bool bPowerOn)
 {
-    if (radio_port_powered)
+    if (bPowerOn)
     {
-        am_hal_iom_power_ctrl(SX126xHandle, AM_HAL_SYSCTRL_DEEPSLEEP, true);
-        radio_port_powered = false;
+        if (radio_port_powered == false)
+        {
+            BoardInitMcu();
+            radio_port_powered = true;
+        }
+    }
+    else
+    {
+        if (radio_port_powered == true)
+        {
+            BoardDeInitMcu();
+            radio_port_powered = false;
+        }
     }
 }
 
@@ -109,37 +119,7 @@ static void lorawan_task_on_sleep()
         {
             callback();
         }
-
-        xTimerChangePeriod(radio_port_timer, pdMS_TO_TICKS(LORAWAN_SPI_PORT_TIMEOUT), 0);
     }
-}
-
-static void lorawan_task_on_wake()
-{
-    xTimerStop(radio_port_timer, 0);
-
-    // turn on the radio immediately as the stack may require access to the radio
-    // hardware upon wake
-    typedef void (*callback_t)(void);
-    callback_t callback = (callback_t)lorawan_event_callback_list[LORAWAN_EVENT_WAKE];
-    if (callback)
-    {
-        callback();
-    }
-
-    if (radio_port_powered == false)
-    {
-        am_hal_iom_power_ctrl(SX126xHandle, AM_HAL_SYSCTRL_WAKE, true);
-        radio_port_powered = true;
-    }
-
-    // The radio looses the public network value across power cycles.
-    // The value can be retrieved from the MIB.  An MIB Set will
-    // trigger a write to the public network register in the radio.
-    MibRequestConfirm_t mibReq;
-    mibReq.Type = MIB_PUBLIC_NETWORK;
-    LoRaMacMibGetRequestConfirm(&mibReq);
-    LoRaMacMibSetRequestConfirm(&mibReq);
 }
 
 void lorawan_task_wake()
@@ -159,7 +139,7 @@ void lorawan_task_wake()
 
     if (radio_port_powered == false)
     {
-        am_hal_iom_power_ctrl(SX126xHandle, AM_HAL_SYSCTRL_WAKE, true);
+        BoardInitMcu();
         radio_port_powered = true;
     }
 
@@ -167,6 +147,14 @@ void lorawan_task_wake()
     {
         return;
     }
+
+    // The radio looses the public network value across power cycles.
+    // The value can be retrieved from the MIB.  An MIB Set will
+    // trigger a write to the public network register in the radio.
+    MibRequestConfirm_t mibReq;
+    mibReq.Type = MIB_PUBLIC_NETWORK;
+    LoRaMacMibGetRequestConfirm(&mibReq);
+    LoRaMacMibSetRequestConfirm(&mibReq);
 
     if (xPortIsInsideInterrupt() == pdTRUE)
     {
@@ -298,7 +286,6 @@ static void lorawan_task(void *pvParameters)
         {
             lorawan_task_on_sleep();
             ulTaskNotifyTake(pdFALSE, portMAX_DELAY);
-            lorawan_task_on_wake();
         }
     }
 }
@@ -379,7 +366,13 @@ void lorawan_stack_state_set(lorawan_stack_state_e eState)
     case LORAWAN_STACK_STARTED:
         if (lorawan_stack_state == LORAWAN_STACK_STOPPED)
         {
-            lorawan_task_on_wake();
+            typedef void (*callback_t)(void);
+            callback_t callback = (callback_t)lorawan_event_callback_list[LORAWAN_EVENT_WAKE];
+            if (callback)
+            {
+                callback();
+            }
+
             BoardInitMcu();
             BoardInitPeriph();
 
@@ -427,16 +420,27 @@ void lorawan_stack_state_set(lorawan_stack_state_e eState)
     case LORAWAN_STACK_STOPPED:
         if (lorawan_stack_state == LORAWAN_STACK_STARTED)
         {
+            typedef void (*callback_t)(void);
+            callback_t callback = (callback_t)lorawan_event_callback_list[LORAWAN_EVENT_WAKE];
+            if (callback)
+            {
+                callback();
+            }
+
             LoRaMacStop();
             LoRaMacDeInitialization();
             BoardDeInitMcu();
-            lorawan_task_on_sleep();
+            
+            callback = (callback_t)lorawan_event_callback_list[LORAWAN_EVENT_NVM_DATA_CHANGE];
+            if (callback)
+            {
+                callback();
+            }
+
             xQueueReset(transmit_queue);
 
             lorawan_stack_state = LORAWAN_STACK_STOPPED;
             radio_port_powered = false;
-
-            lorawan_task_wake();
         }
         break;
 
@@ -563,12 +567,6 @@ void lorawan_task_create(uint32_t ui32Priority)
 
     command_queue = xQueueCreate(LORAWAN_COMMAND_QUEUE_MAX_SIZE, sizeof(lorawan_command_t));
     transmit_queue = xQueueCreate(LORAWAN_TRANSMIT_QUEUE_MAX_SIZE, sizeof(lorawan_tx_packet_t));
-
-    radio_port_timer = xTimerCreate("LoRaWAN Port Timer",
-                                    pdMS_TO_TICKS(LORAWAN_SPI_PORT_TIMEOUT),
-                                    pdFALSE,
-                                    NULL,
-                                    radio_port_shutdown);
 
     memset(&lmh_callbacks, 0, sizeof(LmHandlerCallbacks_t));
     lorawan_tracing_enabled = 0;

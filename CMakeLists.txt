@@ -14,30 +14,40 @@ option(CLI_ENABLE "" ON)
 option(BSP_NM180100EVB "" OFF)
 option(BSP_NM180410 "" OFF)
 option(BSP_NM180411 "" OFF)
+option(BSP_AP510EVB "" OFF)
 
 option(FEATURE_RAT_BLE_ENABLE "" OFF)
 option(FEATURE_RAT_LORAWAN_ENABLE "" ON)
 option(FEATURE_RAT_LORA_MESH_ENABLE "" OFF)
-option(FEATURE_TF_ENABLE "" OFF)
+option(FEATURE_TFLM_ENABLE "" OFF)
 
 if (BSP_NM180100EVB)
 add_definitions(-DBSP_NM180100EVB)
+set(NM_FAMILY "nm1801xx")
 set(NM_TARGET "nm180100")
 set(BSP_TARGET_DIR nm180100evb CACHE STRING "" FORCE)
 endif()
 
 if (BSP_NM180410)
 add_definitions(-DBSP_NM180410)
+set(NM_FAMILY "nm1801xx")
 set(NM_TARGET "nm180100")
 set(BSP_TARGET_DIR nm180410 CACHE STRING "" FORCE)
 endif()
 
 if (BSP_NM180411)
 add_definitions(-DBSP_NM180411)
+set(NM_FAMILY "nm1801xx")
 set(NM_TARGET "nm180110")
 set(BSP_TARGET_DIR nm180411 CACHE STRING "" FORCE)
 endif()
 
+if (BSP_AP510EVB)
+add_definitions(-DBSP_AP510EVB)
+set(NM_FAMILY "cortex-m55")
+set(NM_TARGET "apollo510")
+set(BSP_TARGET_DIR ap510evb CACHE STRING "" FORCE)
+endif()
 
 add_definitions(-DNMI)
 
@@ -54,7 +64,7 @@ set_target_properties(
 )
 
 add_subdirectory(version)
-add_subdirectory(bsp)
+add_subdirectory(bsp/${NM_FAMILY})
 
 if (BUILD_HAL)
     add_dependencies(${APPLICATION} hal)
@@ -83,6 +93,8 @@ target_link_libraries(
         -lm
         -lc
         -lgcc
+        ${CMSIS_NN_LIB}
+        ${TFLM_LIB}
         -Wl,--end-group
         -Wl,--gc-sections
         -Wl,-Map=$<TARGET_PROPERTY:OUTPUT_NAME>.map

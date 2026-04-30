@@ -52,7 +52,7 @@
 import argparse
 import os.path
 import rsonlite
-import apollo4_pinconfig
+import nm_apollo4_pinconfig
 
 # *****************************************************************************
 #    Templates
@@ -666,6 +666,10 @@ if __name__ == '__main__':
     args = read_arguments()
     version = get_version(args.input)
     output_dir = args.output if args.output else os.path.dirname(args.input)
+    if version == 0x0004 or version == 0x0005:
+        nm_apollo4_pinconfig.write_files(args.input, version, output_dir)
+        pass
+
     if version & 0xFF == 0x03:
         pinobj = get_pinobj(args.input)
 

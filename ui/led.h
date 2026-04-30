@@ -66,22 +66,26 @@ typedef enum {
 
 #define LED_EFFECT_MAX     (LED_EFFECT_BUILTIN_MAX + 8)
 
-typedef void (*led_ctimer_isr_t)(void);
+#if defined(AM_PART_APOLLO3) || defined(AM_PART_APOLLO3P)
+typedef void (*led_timer_isr_t)(void);
+#elif defined(AM_PART_APOLLO510)
+typedef void (*led_timer_isr_t)(am_hal_timer_compare_e eCompare);
+#endif
 
 /**
  * @brief LED timer and GPIO parameters.
  * 
- * @param ui32Number CTIMER number.
+ * @param ui32Number CTIMER/TIMER number.
  * 
- * @param ui32Segment CTIMER segment.
+ * @param ui32Segment CTIMER segment (Apollo3 only).
  * 
- * @param ui32Pin GPIO pin connected to the CTIMER output.
+ * @param ui32Pin GPIO pin connected to the CTIMER/TIMER output.
  * 
- * @param ui32Interrupt CTIMER interupt mask.
+ * @param ui32Interrupt CTIMER/TIMER interupt mask.
  * 
  * @param ui32ActiveLow LED is active low.
  * 
- * @param pfnInterruptService CTIMER interrupt handler.
+ * @param pfnInterruptService CTIMER/TIMER interrupt handler.
  */
 typedef struct {
     uint32_t ui32Number;
@@ -89,15 +93,15 @@ typedef struct {
     uint32_t ui32Pin;
     uint32_t ui32Interrupt;
     uint32_t ui32ActiveLow;
-    led_ctimer_isr_t pfnInterruptService;
-} led_config_t;
+    led_timer_isr_t pfnInterruptService;
+} led_timer_config_t;
 
 /**
  * @brief LED effect definition.
  * 
- * @param ui32Clock CTIMER Clock source.  See am_hal_ctimer.h for details.
+ * @param ui32Clock Timer clock source.
  * 
- * @param ui32Period CTIMER Clock period.
+ * @param ui32Period Timer clock period.
  * 
  * @param pui8Sequence A byte sequence indicating the LED intensity with 0 being the lowest
  *   and a value equal to period being the maximum.
@@ -130,7 +134,7 @@ typedef struct {
  * 
  * @param psConfig LED configuration.
  */
-extern void led_config(uint32_t *pui32Handle, const led_config_t *psConfig);
+extern void led_config(uint32_t *pui32Handle, const led_timer_config_t *psConfig);
 
 /**
  * @brief Return a list of configured LED.
@@ -141,7 +145,7 @@ extern void led_config(uint32_t *pui32Handle, const led_config_t *psConfig);
  *
  * @param pui32Count length of the list.
  */
-extern void led_config_list(uint32_t *pui32HandleList, led_config_t **psConfigList, uint32_t *pui32Length);
+extern void led_config_list(uint32_t *pui32HandleList, led_timer_config_t **psConfigList, uint32_t *pui32Length);
 
 /**
  * @brief Register an LED effect and return an identifier.
@@ -170,7 +174,7 @@ extern void led_send(led_command_t *psCommand);
 extern led_status_t led_status_get(uint32_t ui32Handle);
 
 /**
- * @brief To be called in the LED CTIMER interrupt
+ * @brief To be called in the LED timer interrupt
  * 
  * @param ui32Handle LED handle
  */

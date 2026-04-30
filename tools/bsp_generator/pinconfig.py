@@ -5,12 +5,12 @@
 #    pinconfig.py
 #
 #    @brief Script for generating a BSP pin file.
-
+#
 # *****************************************************************************
 
 # *****************************************************************************
 #
-#    Copyright (c) 2020, Ambiq Micro, Inc.
+#    Copyright (c) 2025, Ambiq Micro, Inc.
 #    All rights reserved.
 #
 #    Redistribution and use in source and binary forms, with or without
@@ -42,7 +42,7 @@
 #    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 #    POSSIBILITY OF SUCH DAMAGE.
 #
-#  This is part of revision 2.5.1 of the AmbiqSuite Development Package.
+#  This is part of revision release_sdk5p0p0-5f68a8286b of the AmbiqSuite Development Package.
 #
 # *****************************************************************************
 
@@ -73,7 +73,7 @@ filetemplateC = '''
 
 //*****************************************************************************
 //
-// Copyright (c) 2020, Ambiq Micro, Inc.
+// Copyright (c) 2025, Ambiq Micro, Inc.
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -105,7 +105,7 @@ filetemplateC = '''
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 //
-// This is part of revision 2.5.1 of the AmbiqSuite Development Package.
+// This is part of revision release_sdk5p0p0-5f68a8286b of the AmbiqSuite Development Package.
 //
 //*****************************************************************************
 
@@ -137,7 +137,7 @@ filetemplateH = '''
 
 //*****************************************************************************
 //
-// Copyright (c) 2020, Ambiq Micro, Inc.
+// Copyright (c) 2025, Ambiq Micro, Inc.
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -169,7 +169,7 @@ filetemplateH = '''
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 //
-// This is part of revision 2.5.1 of the AmbiqSuite Development Package.
+// This is part of revision release_sdk5p0p0-5f68a8286b of the AmbiqSuite Development Package.
 //
 //*****************************************************************************
 
@@ -659,10 +659,8 @@ if __name__ == '__main__':
     version = get_version(args.input)
 
     # Redirect the script based on the version number.
-    #### INTERNAL normal apollo4_nemagfx BEGIN ####
-    if version == 0x0004:
-        apollo4_pinconfig.write_c_files(args.input, bCreateC)
-    #### INTERNAL normal apollo4_nemagfx END ####
+    if version == 0x0004 or version == 0x0005:
+        apollo4_pinconfig.write_c_files(args.input, version, bCreateC)
 
     if version & 0xFF == 0x03:
         pinobj = get_pinobj(args.input)

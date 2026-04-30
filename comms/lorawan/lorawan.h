@@ -404,6 +404,8 @@ extern void lorawan_event_callback_unregister(lorawan_event_e eEvent);
  */
 extern void lorawan_tracing_set(uint32_t ui32Enabled);
 
+extern void lorawan_radio_port_power(bool bPowerOn);
+
 #ifdef __cplusplus
 }
 #endif

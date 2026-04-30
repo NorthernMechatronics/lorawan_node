@@ -57,7 +57,7 @@ typedef struct {
     uint32_t ui32Handle;
     uint32_t effect;
     led_status_t status;
-    led_config_t config;
+    led_timer_config_t config;
     const led_sequence_t* sequence;
     uint32_t repeat;
     uint32_t count;
@@ -68,6 +68,7 @@ static led_context_t led_context[LED_NUM_MAX];
 
 static void led_config_duty_cycle(uint32_t ui32Handle, uint32_t ui32OnTime)
 {
+#if defined(AM_PART_APOLLO3) || defined(AM_PART_APOLLO3P)
     uint32_t duty_cycle = ui32OnTime;
 
     if (ui32OnTime == 0)
@@ -83,7 +84,7 @@ static void led_config_duty_cycle(uint32_t ui32Handle, uint32_t ui32OnTime)
         // from the GPIO.
         duty_cycle = 1;
     }
-    else if (ui32OnTime == led_context[ui32Handle].sequence->ui32Period)
+    else if (ui32OnTime >= led_context[ui32Handle].sequence->ui32Period)
     {
         // full on
         am_hal_gpio_pinconfig(led_context[ui32Handle].config.ui32Pin, g_AM_HAL_GPIO_OUTPUT_8);
@@ -121,6 +122,34 @@ static void led_config_duty_cycle(uint32_t ui32Handle, uint32_t ui32OnTime)
             led_context[ui32Handle].config.ui32Segment,
             led_context[ui32Handle].sequence->ui32Period, duty_cycle);
     }
+#elif defined(AM_PART_APOLLO510)
+    am_hal_timer_disable(led_context[ui32Handle].config.ui32Number);
+    if (ui32OnTime == 0)
+    {
+        // full off
+        am_hal_gpio_pinconfig(led_context[ui32Handle].config.ui32Pin, am_hal_gpio_pincfg_output);
+        am_hal_gpio_state_write(
+            led_context[ui32Handle].config.ui32Pin,
+            led_context[ui32Handle].config.ui32ActiveLow ? AM_HAL_GPIO_OUTPUT_SET : AM_HAL_GPIO_OUTPUT_CLEAR);
+    }
+    else if (ui32OnTime >= led_context[ui32Handle].sequence->ui32Period)
+    {
+        // full on
+        am_hal_gpio_pinconfig(led_context[ui32Handle].config.ui32Pin, am_hal_gpio_pincfg_output);
+        am_hal_gpio_state_write(
+            led_context[ui32Handle].config.ui32Pin,
+            led_context[ui32Handle].config.ui32ActiveLow ? AM_HAL_GPIO_OUTPUT_CLEAR : AM_HAL_GPIO_OUTPUT_SET);
+    }
+    else
+    {
+        // PWM
+        am_hal_gpio_pincfg_t pin_config = AM_HAL_GPIO_PINCFG_DISABLED;
+        pin_config.GP.cfg_b.uFuncSel = AM_HAL_PIN_0_CT0;
+        am_hal_gpio_pinconfig(led_context[ui32Handle].config.ui32Pin, pin_config);
+        am_hal_timer_compare1_set(led_context[ui32Handle].config.ui32Number, ui32OnTime);
+    }
+    am_hal_timer_enable(led_context[ui32Handle].config.ui32Number);
+#endif
 }
 
 void led_interrupt_service(uint32_t ui32Handle)
@@ -134,8 +163,13 @@ void led_interrupt_service(uint32_t ui32Handle)
     // the timer and set the output to constant low.
     if ((led_context[ui32Handle].count == 0) && (led_context[ui32Handle].repeat > 0))
     {
+#if defined(AM_PART_APOLLO3) || defined(AM_PART_APOLLO3P)
         am_hal_ctimer_stop(led_context[ui32Handle].config.ui32Number, led_context[ui32Handle].config.ui32Segment);
         am_hal_gpio_pinconfig(led_context[ui32Handle].config.ui32Pin, g_AM_HAL_GPIO_OUTPUT_8);
+#elif defined(AM_PART_APOLLO510)
+        am_hal_timer_disable(led_context[ui32Handle].config.ui32Number);
+        am_hal_gpio_pinconfig(led_context[ui32Handle].config.ui32Pin, am_hal_gpio_pincfg_output);
+#endif
         am_hal_gpio_state_write(led_context[ui32Handle].config.ui32Pin, led_context[ui32Handle].config.ui32ActiveLow ? AM_HAL_GPIO_OUTPUT_SET : AM_HAL_GPIO_OUTPUT_CLEAR);
         return;
     }
@@ -162,12 +196,19 @@ static void handle_led_off(uint32_t ui32Handle)
 
     led_context[ui32Handle].status = LED_STATUS_OFF;
     led_context[ui32Handle].sequence = 0;
+#if defined(AM_PART_APOLLO3) || defined(AM_PART_APOLLO3P)
     am_hal_ctimer_stop(
         led_context[ui32Handle].config.ui32Number,
         led_context[ui32Handle].config.ui32Segment);
     am_hal_gpio_pinconfig(
         led_context[ui32Handle].config.ui32Pin,
         g_AM_HAL_GPIO_OUTPUT_8);
+#elif defined(AM_PART_APOLLO510)
+    am_hal_timer_disable(led_context[ui32Handle].config.ui32Number);
+    am_hal_gpio_pinconfig(
+        led_context[ui32Handle].config.ui32Pin,
+        am_hal_gpio_pincfg_output);
+#endif
     am_hal_gpio_state_write(
         led_context[ui32Handle].config.ui32Pin,
         led_context[ui32Handle].config.ui32ActiveLow ? AM_HAL_GPIO_OUTPUT_SET : AM_HAL_GPIO_OUTPUT_CLEAR);
@@ -182,12 +223,19 @@ static void handle_led_on(uint32_t ui32Handle)
 
     led_context[ui32Handle].status = LED_STATUS_ACTIVE;
     led_context[ui32Handle].sequence = 0;
+#if defined(AM_PART_APOLLO3) || defined(AM_PART_APOLLO3P)
     am_hal_ctimer_stop(
         led_context[ui32Handle].config.ui32Number,
         led_context[ui32Handle].config.ui32Segment);
     am_hal_gpio_pinconfig(
         led_context[ui32Handle].config.ui32Pin,
         g_AM_HAL_GPIO_OUTPUT_8);
+#elif defined(AM_PART_APOLLO510)
+    am_hal_timer_disable(led_context[ui32Handle].config.ui32Number);
+    am_hal_gpio_pinconfig(
+        led_context[ui32Handle].config.ui32Pin,
+        am_hal_gpio_pincfg_output);
+#endif
     am_hal_gpio_state_write(
         led_context[ui32Handle].config.ui32Pin,
         led_context[ui32Handle].config.ui32ActiveLow ? AM_HAL_GPIO_OUTPUT_CLEAR : AM_HAL_GPIO_OUTPUT_SET);
@@ -202,12 +250,19 @@ static void handle_led_idle(uint32_t ui32Handle)
 
     led_context[ui32Handle].status = LED_STATUS_IDLE;
     led_context[ui32Handle].sequence = 0;
+#if defined(AM_PART_APOLLO3) || defined(AM_PART_APOLLO3P)
     am_hal_ctimer_stop(
         led_context[ui32Handle].config.ui32Number,
         led_context[ui32Handle].config.ui32Segment);
     am_hal_gpio_pinconfig(
         led_context[ui32Handle].config.ui32Pin,
         g_AM_HAL_GPIO_OUTPUT_8);
+#elif defined(AM_PART_APOLLO510)
+    am_hal_timer_disable(led_context[ui32Handle].config.ui32Number);
+    am_hal_gpio_pinconfig(
+        led_context[ui32Handle].config.ui32Pin,
+        am_hal_gpio_pincfg_output);
+#endif
     am_hal_gpio_state_write(
         led_context[ui32Handle].config.ui32Pin,
         led_context[ui32Handle].config.ui32ActiveLow ? AM_HAL_GPIO_OUTPUT_SET : AM_HAL_GPIO_OUTPUT_CLEAR);
@@ -237,6 +292,7 @@ static void handle_led_effect(uint32_t ui32Handle, uint32_t ui32EffectId, uint32
         led_context[ui32Handle].count =
             led_context[ui32Handle].repeat * led_context[ui32Handle].sequence->ui32Period; 
 
+#if defined(AM_PART_APOLLO3) || defined(AM_PART_APOLLO3P)
         am_hal_ctimer_config_single(
             led_context[ui32Handle].config.ui32Number,
             led_context[ui32Handle].config.ui32Segment,
@@ -258,6 +314,36 @@ static void handle_led_effect(uint32_t ui32Handle, uint32_t ui32EffectId, uint32
         am_hal_ctimer_start(
             led_context[ui32Handle].config.ui32Number,
             led_context[ui32Handle].config.ui32Segment);
+#elif defined(AM_PART_APOLLO510)
+        uint32_t ui32Timer = led_context[ui32Handle].config.ui32Number;
+
+        am_hal_timer_config_t timer_config;
+        am_hal_gpio_pincfg_t pin_config = AM_HAL_GPIO_PINCFG_DISABLED;
+
+        am_hal_timer_default_config_set(&timer_config);
+        timer_config.eFunction = AM_HAL_TIMER_FN_PWM;
+        timer_config.eInputClock = led_context[ui32Handle].sequence->ui32Clock;
+
+        pin_config.GP.cfg_b.uFuncSel = AM_HAL_PIN_0_CT0;
+
+        am_hal_timer_disable(ui32Timer);
+        am_hal_timer_config(ui32Timer, &timer_config);
+
+        uint32_t timer_output = AM_HAL_TIMER_OUTPUT_TMR0_OUT0 * ui32Timer;
+        am_hal_timer_output_config(led_context[ui32Handle].config.ui32Pin,
+                                   led_context[ui32Handle].config.ui32ActiveLow ? timer_output : timer_output + 1);
+
+        am_hal_gpio_pinconfig(led_context[ui32Handle].config.ui32Pin, pin_config);
+        am_hal_timer_compare0_set(ui32Timer, led_context[ui32Handle].sequence->ui32Period);
+        am_hal_timer_compare1_set(ui32Timer, 1);
+        led_context[ui32Handle].index = 0;
+
+        am_hal_timer_interrupt_register(ui32Timer, led_context[ui32Handle].config.pfnInterruptService);
+        am_hal_timer_interrupt_clear(AM_HAL_TIMER_MASK(ui32Timer, AM_HAL_TIMER_COMPARE0));
+        am_hal_timer_interrupt_enable(AM_HAL_TIMER_MASK(ui32Timer, AM_HAL_TIMER_COMPARE0));
+        NVIC_EnableIRQ((IRQn_Type)(ui32Timer + TIMER0_IRQn));
+        am_hal_timer_enable(ui32Timer);
+#endif
     }
 }
 
@@ -328,7 +414,7 @@ void led_task_create(uint32_t priority)
     xTaskCreate(led_task, "led", 512, 0, priority, &led_task_handle);
 }
 
-void led_config(uint32_t *pui32Handle, const led_config_t *psConfig)
+void led_config(uint32_t *pui32Handle, const led_timer_config_t *psConfig)
 {
     if (led_num_count >= LED_NUM_MAX)
     {
@@ -353,13 +439,23 @@ void led_config(uint32_t *pui32Handle, const led_config_t *psConfig)
     led_context[*pui32Handle].repeat = 0;
     led_context[*pui32Handle].count = 0;
     led_context[*pui32Handle].index = 0;
-    memcpy(&(led_context[*pui32Handle].config), psConfig, sizeof(led_config_t));
+    memcpy(&(led_context[*pui32Handle].config), psConfig, sizeof(led_timer_config_t));
+#if defined(AM_PART_APOLLO3) || defined(AM_PART_APOLLO3P)
     am_hal_ctimer_int_register(led_context[*pui32Handle].config.ui32Interrupt, led_context[*pui32Handle].config.pfnInterruptService);
     am_hal_ctimer_int_disable(led_context[*pui32Handle].config.ui32Interrupt);
     NVIC_EnableIRQ(CTIMER_IRQn);
+#elif defined(AM_PART_APOLLO510)
+    led_context[*pui32Handle].config.ui32Interrupt = AM_HAL_TIMER_MASK(
+        led_context[*pui32Handle].config.ui32Number,
+        AM_HAL_TIMER_COMPARE0
+    );
+    // am_hal_timer_interrupt_register(led_context[*pui32Handle].config.ui32Number, led_context[*pui32Handle].config.pfnInterruptService);
+    // am_hal_timer_interrupt_clear(led_context[*pui32Handle].config.ui32Interrupt);
+    // NVIC_EnableIRQ((IRQn_Type)(led_context[*pui32Handle].config.ui32Number + TIMER0_IRQn));
+#endif
 }
 
-void led_config_list(uint32_t *pui32HandleList, led_config_t **psConfigList, uint32_t *pui32Length)
+void led_config_list(uint32_t *pui32HandleList, led_timer_config_t **psConfigList, uint32_t *pui32Length)
 {
     uint32_t ui32Index;
 

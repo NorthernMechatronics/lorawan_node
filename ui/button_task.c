@@ -126,11 +126,21 @@ static void button_press_handler(void *context)
 {
     uint32_t handle = (uint32_t)context;
 
+#if defined(AM_PART_APOLLO3) || defined(AM_PART_APOLLO3P)
     AM_HAL_GPIO_MASKCREATE(pin_interrupt);
     AM_HAL_GPIO_MASKBITSMULT(ppin_interrupt, button_cfg[handle].pin);
 
     am_hal_gpio_interrupt_disable(ppin_interrupt);
     am_hal_gpio_interrupt_clear(ppin_interrupt);
+#elif defined(AM_PART_APOLLO510)
+    am_hal_gpio_mask_t pin_interrupt_mask = AM_HAL_GPIO_MASK_DECLARE_ZERO;
+    uint32_t index = GPIO_NUM2IDX(button_cfg[handle].pin);
+    uint32_t mask = GPIO_NUM2MSK(button_cfg[handle].pin);
+    pin_interrupt_mask.U.Msk[index] |= mask;
+
+    am_hal_gpio_interrupt_control(AM_HAL_GPIO_INT_CHANNEL_0, AM_HAL_GPIO_INT_CTRL_INDV_DISABLE, &button_cfg[handle].pin);
+    am_hal_gpio_interrupt_clear(AM_HAL_GPIO_INT_CHANNEL_0, &pin_interrupt_mask);
+#endif
 
     button_task_send_command(BUTTON_STATE_PRESSED, handle);
 }
@@ -141,8 +151,15 @@ static button_press_e button_press_classification(uint32_t handle)
     uint32_t current_state;
     uint32_t duration;
 
+#if defined(AM_PART_APOLLO3) || defined(AM_PART_APOLLO3P)
     AM_HAL_GPIO_MASKCREATE(pin_interrupt);
     AM_HAL_GPIO_MASKBITSMULT(ppin_interrupt, button_cfg[handle].pin);
+#elif defined(AM_PART_APOLLO510)
+    am_hal_gpio_mask_t pin_interrupt_mask = AM_HAL_GPIO_MASK_DECLARE_ZERO;
+    uint32_t index = GPIO_NUM2IDX(button_cfg[handle].pin);
+    uint32_t mask = GPIO_NUM2MSK(button_cfg[handle].pin);
+    pin_interrupt_mask.U.Msk[index] |= mask;
+#endif
 
     xTimerStop(button_cfg[handle].timer, portMAX_DELAY);
 
@@ -150,8 +167,13 @@ static button_press_e button_press_classification(uint32_t handle)
     am_hal_gpio_state_read(button_cfg[handle].pin, AM_HAL_GPIO_INPUT_READ, &initial_state);
     if (initial_state == button_cfg[handle].active_low)
     {
+#if defined(AM_PART_APOLLO3) || defined(AM_PART_APOLLO3P)
         am_hal_gpio_interrupt_clear(ppin_interrupt);
         am_hal_gpio_interrupt_enable(ppin_interrupt);
+#elif defined(AM_PART_APOLLO510)
+        am_hal_gpio_interrupt_clear(AM_HAL_GPIO_INT_CHANNEL_0, &pin_interrupt_mask);
+        am_hal_gpio_interrupt_control(AM_HAL_GPIO_INT_CHANNEL_0, AM_HAL_GPIO_INT_CTRL_INDV_ENABLE, &button_cfg[handle].pin);
+#endif
 
         return BUTTON_PRESS_SHORT;
     }
@@ -165,8 +187,13 @@ static button_press_e button_press_classification(uint32_t handle)
         duration += BUTTON_PRESS_SAMPLING_MS;
     }
 
+#if defined(AM_PART_APOLLO3) || defined(AM_PART_APOLLO3P)
     am_hal_gpio_interrupt_clear(ppin_interrupt);
     am_hal_gpio_interrupt_enable(ppin_interrupt);
+#elif defined(AM_PART_APOLLO510)
+    am_hal_gpio_interrupt_clear(AM_HAL_GPIO_INT_CHANNEL_0, &pin_interrupt_mask);
+    am_hal_gpio_interrupt_control(AM_HAL_GPIO_INT_CHANNEL_0, AM_HAL_GPIO_INT_CTRL_INDV_ENABLE, &button_cfg[handle].pin);
+#endif
 
     xTimerChangePeriod(button_cfg[handle].timer, pdMS_TO_TICKS(BUTTON_PRESS_GAP_MS), portMAX_DELAY);
 
@@ -265,6 +292,7 @@ void button_config(uint32_t *pui32Handle, uint32_t ui32Pin, am_hal_gpio_pincfg_t
     memcpy(&button_cfg[*pui32Handle].config, &sConfig, sizeof(am_hal_gpio_pincfg_t));
     button_cfg[*pui32Handle].timer = xTimerCreate("Button Timer", pdMS_TO_TICKS(1000), pdFALSE, (void *)(*pui32Handle), button_task_timer_callback);
 
+#if defined(AM_PART_APOLLO3) || defined(AM_PART_APOLLO3P)
     AM_HAL_GPIO_MASKCREATE(pin_interrupt);
     AM_HAL_GPIO_MASKBITSMULT(ppin_interrupt, ui32Pin);
 
@@ -273,6 +301,27 @@ void button_config(uint32_t *pui32Handle, uint32_t ui32Pin, am_hal_gpio_pincfg_t
     am_hal_gpio_interrupt_clear(ppin_interrupt);
     am_hal_gpio_interrupt_enable(ppin_interrupt);
     NVIC_EnableIRQ(GPIO_IRQn);
+#elif defined(AM_PART_APOLLO510)
+    am_hal_gpio_pinconfig(button_cfg[*pui32Handle].pin, button_cfg[*pui32Handle].config);
+    am_hal_gpio_interrupt_register(AM_HAL_GPIO_INT_CHANNEL_0, button_cfg[*pui32Handle].pin, button_press_handler, (void *)(*pui32Handle));
+
+    am_hal_gpio_mask_t pin_interrupt_mask = AM_HAL_GPIO_MASK_DECLARE_ZERO;
+    uint32_t index = GPIO_NUM2IDX(button_cfg[*pui32Handle].pin);
+    uint32_t mask = GPIO_NUM2MSK(button_cfg[*pui32Handle].pin);
+    pin_interrupt_mask.U.Msk[index] |= mask;
+
+    am_hal_gpio_interrupt_clear(AM_HAL_GPIO_INT_CHANNEL_0, &pin_interrupt_mask);
+    am_hal_gpio_interrupt_control(AM_HAL_GPIO_INT_CHANNEL_0, AM_HAL_GPIO_INT_CTRL_INDV_ENABLE, &button_cfg[*pui32Handle].pin);
+
+    NVIC_EnableIRQ(GPIO0_001F_IRQn);
+    NVIC_EnableIRQ(GPIO0_203F_IRQn);
+    NVIC_EnableIRQ(GPIO0_405F_IRQn);
+    NVIC_EnableIRQ(GPIO0_607F_IRQn);
+    NVIC_EnableIRQ(GPIO0_809F_IRQn);
+    NVIC_EnableIRQ(GPIO0_A0BF_IRQn);
+    NVIC_EnableIRQ(GPIO0_C0DF_IRQn);
+    NVIC_EnableIRQ(GPIO0_E0FF_IRQn);
+#endif
 
     vListInitialise(&button_cfg[*pui32Handle].sequence);
 

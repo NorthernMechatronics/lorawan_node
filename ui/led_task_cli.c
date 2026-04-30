@@ -92,7 +92,7 @@ static void help(char *pui8OutBuffer, size_t argc, char **argv)
 static void list(char *pui8OutBuffer, size_t argc, char **argv)
 {
     uint32_t handle_list[LED_NUM_MAX];
-    led_config_t *config_list[LED_NUM_MAX];
+    led_timer_config_t *config_list[LED_NUM_MAX];
     uint32_t length;
 
     led_config_list(handle_list, config_list, &length);

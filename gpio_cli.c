@@ -36,6 +36,7 @@
 
 #include <am_mcu_apollo.h>
 #include <am_util.h>
+#include <am_bsp.h>
 
 #include <FreeRTOS.h>
 #include <FreeRTOS_CLI.h>
@@ -48,10 +49,13 @@
 #define COMMAND_LINE_BUFFER_MAX     (128)
 
 static uint8_t gReservedPins[] = {
-    20, 21, 41,                    // SWD
-    22, 23, 33, 37,                // J-Link VCOM
-    16, 18, 19,                    // Push-Buttons
+    AM_BSP_GPIO_SWDCK, AM_BSP_GPIO_SWDIO, AM_BSP_GPIO_ITM_SWO, // SWD
+    AM_BSP_GPIO_COM_UART_TX, AM_BSP_GPIO_COM_UART_RX,          // J-Link VCOM
+    AM_BSP_GPIO_BUTTON0, AM_BSP_GPIO_BUTTON1,                  // Push-Buttons
+#if defined(AM_PART_APOLLO3) || defined(AM_PART_APOLLO3P)
+    AM_BSP_GPIO_BUTTON2,
     36, 38, 39, 40, 42, 43, 44, 47 // SX1262
+#endif
 };
 
 static size_t MAX_RESERVED_PINS = sizeof(gReservedPins);
@@ -61,7 +65,11 @@ portBASE_TYPE gpio_cli_entry(char *pui8OutBuffer, size_t ui32OutBufferLength,
 
 const CLI_Command_Definition_t gpio_cli_definition = {
     (const char *const) "gpio",
+#if defined(AM_PART_APOLLO3) || defined(AM_PART_APOLLO3P)
     (const char *const) "gpio   :  NM1801xx GPIO control.\r\n", gpio_cli_entry, -1};
+#elif defined(AM_PART_APOLLO510)
+    (const char *const) "gpio   :  Apollo510 GPIO control.\r\n", gpio_cli_entry, -1};
+#endif
 
 static size_t argc;
 static char *argv[8];
@@ -102,7 +110,11 @@ static uint32_t gpio_init_output(uint32_t pin)
     }
 
     if (pin < MAX_GPIO_PINS) {
+#if defined(AM_PART_APOLLO3) || defined(AM_PART_APOLLO3P)
         am_hal_gpio_pinconfig(pin, g_AM_HAL_GPIO_OUTPUT);
+#elif defined(AM_PART_APOLLO510)
+        am_hal_gpio_pinconfig(pin, am_hal_gpio_pincfg_output);
+#endif
 
         am_hal_gpio_state_write(pin, AM_HAL_GPIO_OUTPUT_CLEAR);
     }
@@ -117,7 +129,11 @@ static uint32_t gpio_init_input(uint32_t pin)
     }
 
     if (pin < MAX_GPIO_PINS) {
+#if defined(AM_PART_APOLLO3) || defined(AM_PART_APOLLO3P)
         am_hal_gpio_pinconfig(pin, g_AM_HAL_GPIO_INPUT);
+#elif defined(AM_PART_APOLLO510)
+        am_hal_gpio_pinconfig(pin, am_hal_gpio_pincfg_input);
+#endif
     }
 
     return AM_HAL_STATUS_SUCCESS;
@@ -130,7 +146,11 @@ static uint32_t gpio_deinit(uint32_t pin)
     }
 
     if (pin < MAX_GPIO_PINS) {
+#if defined(AM_PART_APOLLO3) || defined(AM_PART_APOLLO3P)
         am_hal_gpio_pinconfig(pin, g_AM_HAL_GPIO_DISABLE);
+#elif defined(AM_PART_APOLLO510)
+        am_hal_gpio_pinconfig(pin, am_hal_gpio_pincfg_disabled);
+#endif
     }
 
     return AM_HAL_STATUS_SUCCESS;

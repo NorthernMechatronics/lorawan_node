@@ -37,9 +37,9 @@ extern "C"
 {
 #endif
 
-#define NM_APP_VERSION_MAJ  2
-#define NM_APP_VERSION_MIN  0
-#define NM_APP_VERSION_REV  1
+#define NM_APP_VERSION_MAJ  3
+#define NM_APP_VERSION_MIN  3
+#define NM_APP_VERSION_REV  0
 
 extern const char nm_app_version[];
 

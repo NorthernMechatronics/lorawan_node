@@ -43,6 +43,9 @@
 #define AUTH_REQ_BUFFER_SIZE (5)
 static uint8_t auth_req_buffer[AUTH_REQ_BUFFER_SIZE];
 static uint8_t frag_write_status[FRAG_MAX_NB];
+static uint8_t pui8tempData[ 2 * AM_HAL_FLASH_PAGE_SIZE];   //flash byte clearing swap space
+
+static int8_t frag_decoder_read(uint32_t ui32Offset, uint8_t *pui8Data, uint32_t ui32Size);
 
 static void on_frag_progress(uint16_t ui16Counter, uint16_t ui16Blocks, uint8_t ui8Size, uint16_t ui16Lost)
 {
@@ -83,11 +86,80 @@ static void on_frag_done(int32_t ui32Status, uint32_t ui32Size)
     }
 }
 
+static int32_t is_blank(uint32_t *pui32Destination, uint32_t ui32Size)
+{
+    uint8_t *pui8Destination = (uint8_t *)pui32Destination;
+
+    for(uint32_t i=0; i < ui32Size; i++)
+    {
+        if(*pui8Destination != 0xff)
+        {return false;}
+        pui8Destination++;
+    }
+
+    return true;
+}
+
 static int8_t frag_decoder_write(uint32_t ui32Offset, uint8_t *pui8Data, uint32_t ui32Size)
 {
     uint32_t *pui32Destination = (uint32_t *)(OTA_FLASH_ADDRESS + ui32Offset);
     uint32_t pui32Source[64];
     uint32_t pui32Length = ui32Size >> 2;
+
+    //check within flash
+    if (!ISADDRFLASH((uint32_t)pui32Destination + ui32Size))
+    {
+        am_util_stdio_printf(
+                "\r\nDecoder Write: 0x%x, 0x%x, %d Not in flash!\r\n ", (uint32_t)pui32Destination, (uint32_t)pui32Source, pui32Length);
+        return -1;
+    }
+
+    //check blank
+    if (!is_blank( pui32Destination,  ui32Size))
+    {
+        if (lorawan_tracing_enabled)
+        {
+            am_util_stdio_printf(
+                "\r\nDecoder Write: 0x%x, 0x%x, %d NOT BLANK!!!!!!!\r\n ", (uint32_t)pui32Destination, (uint32_t)pui32Source, pui32Length);
+        }
+
+        //locate pages required
+        uint32_t page_start = (uint32_t)pui32Destination & 0x000fe000;
+        uint32_t end_addr = (uint32_t)pui32Destination + ui32Size - 1;
+
+        uint8_t page_span = 1;
+
+        if (AM_HAL_FLASH_ADDR2PAGE((uint32_t)pui32Destination) != AM_HAL_FLASH_ADDR2PAGE(end_addr))
+        {
+            page_span = 2 ;
+        }
+        
+        //copy page(s) out to temp
+        frag_decoder_read( page_start - OTA_FLASH_ADDRESS, pui8tempData, page_span * AM_HAL_FLASH_PAGE_SIZE);
+
+        //erase pages
+        AM_CRITICAL_BEGIN
+        am_hal_flash_page_erase(AM_HAL_FLASH_PROGRAM_KEY,
+                                AM_HAL_FLASH_ADDR2INST((uint32_t)pui32Destination),
+                                AM_HAL_FLASH_ADDR2PAGE((uint32_t)pui32Destination));
+        AM_CRITICAL_END
+        if (page_span == 2) //spans another page
+        {
+            AM_CRITICAL_BEGIN
+            am_hal_flash_page_erase(AM_HAL_FLASH_PROGRAM_KEY,
+                                    AM_HAL_FLASH_ADDR2INST(end_addr),
+                                    AM_HAL_FLASH_ADDR2PAGE(end_addr));
+            AM_CRITICAL_END
+        }
+
+        //clear area for new data
+        memset1(pui8tempData + (ui32Offset & 0x1fff), 0xff, ui32Size);
+
+        //write pages back
+        AM_CRITICAL_BEGIN
+        am_hal_flash_program_main(AM_HAL_FLASH_PROGRAM_KEY, (uint32_t*)pui8tempData, (uint32_t*)page_start, (page_span * AM_HAL_FLASH_PAGE_SIZE) >> 2);
+        AM_CRITICAL_END
+    }
 
     if (lorawan_tracing_enabled)
     {
@@ -95,10 +167,12 @@ static int8_t frag_decoder_write(uint32_t ui32Offset, uint8_t *pui8Data, uint32_
             "\r\nDecoder Write: 0x%x, 0x%x, %d\r\n", (uint32_t)pui32Destination, (uint32_t)pui32Source, pui32Length);
     }
 
-    memcpy(pui32Source, pui8Data, ui32Size);
+    memset1((uint8_t*)pui32Source, 0xff, 256);
+    //word align pui8Data
+    memcpy(&(((uint8_t*)pui32Source)[(uint32_t)pui32Destination & 0x3]), pui8Data, ui32Size);
 
     AM_CRITICAL_BEGIN
-    am_hal_flash_program_main(AM_HAL_FLASH_PROGRAM_KEY, pui32Source, pui32Destination, pui32Length);
+    am_hal_flash_program_main(AM_HAL_FLASH_PROGRAM_KEY, pui32Source, pui32Destination, pui32Length + 1);
     AM_CRITICAL_END
 
     return 0;
@@ -130,8 +204,6 @@ static int8_t frag_decoder_erase(uint32_t ui32Offset, uint32_t ui32Block, uint32
 
     for (int i = 0; i < ui32TotalPage; i++)
     {
-        ui32Address += AM_HAL_FLASH_PAGE_SIZE;
-
         if (lorawan_tracing_enabled)
         {
             am_util_stdio_printf("Instance: %d, Page: %d\r\n",
@@ -144,6 +216,8 @@ static int8_t frag_decoder_erase(uint32_t ui32Offset, uint32_t ui32Block, uint32
                                 AM_HAL_FLASH_ADDR2INST(ui32Address),
                                 AM_HAL_FLASH_ADDR2PAGE(ui32Address));
         AM_CRITICAL_END
+
+        ui32Address += AM_HAL_FLASH_PAGE_SIZE;
     }
 
     return 0;

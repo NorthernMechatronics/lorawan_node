@@ -34,7 +34,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <am_hal_ctimer.h>
 #include <am_mcu_apollo.h>
 #include <am_util.h>
 
@@ -110,8 +109,14 @@ void vApplicationStackOverflowHook(TaskHandle_t pxTask, char *pcTaskName)
     }
 }
 
+void vApplicationIdleHook(void)
+{
+
+}
+
 void system_setup(void)
 {
+#if defined(AM_PART_APOLLO3) || defined(AM_PART_APOLLO3P)
     //
     // Set the clock frequency.
     //
@@ -133,6 +138,7 @@ void system_setup(void)
     am_hal_rtc_osc_disable();
 
     NVIC_SetPriority(GPIO_IRQn, NVIC_configKERNEL_INTERRUPT_PRIORITY);
+    NVIC_SetPriority(CTIMER_IRQn, NVIC_configKERNEL_INTERRUPT_PRIORITY);
     NVIC_SetPriority(STIMER_CMPR2_IRQn, NVIC_configKERNEL_INTERRUPT_PRIORITY);
     NVIC_SetPriority(STIMER_CMPR3_IRQn, NVIC_configKERNEL_INTERRUPT_PRIORITY);
     NVIC_SetPriority(STIMER_CMPR4_IRQn, NVIC_configKERNEL_INTERRUPT_PRIORITY);
@@ -142,6 +148,45 @@ void system_setup(void)
     NVIC_SetPriority(BLE_IRQn, NVIC_configKERNEL_INTERRUPT_PRIORITY);
 
     am_hal_interrupt_master_enable();
+#elif defined(AM_PART_APOLLO510)
+    am_hal_pwrctrl_low_power_init();
+
+    //
+    //  Enable the I-Cache and D-Cache.
+    //
+    am_hal_cachectrl_icache_enable();
+    am_hal_cachectrl_dcache_enable(true);
+
+    am_hal_pwrctrl_control(AM_HAL_PWRCTRL_CONTROL_SIMOBUCK_INIT, NULL);
+
+    //
+    // Set default temperature for spotmgr to room temperature
+    //
+    am_hal_pwrctrl_temp_thresh_t dummy;
+    am_hal_pwrctrl_temp_update(25.0f, &dummy);
+
+    am_hal_clkgen_control(AM_HAL_CLKGEN_CONTROL_HFADJ_ENABLE, 0);
+
+    //
+    // Set board related info into clock manager
+    //
+    am_hal_clkmgr_board_info_t sClkmgrBoardInfo =
+    {
+        .sXtalHs.eXtalHsMode    = AM_HAL_CLKMGR_XTAL_HS_MODE_XTAL,
+        .sXtalHs.ui32XtalHsFreq = 48000000U,
+        .sXtalLs.eXtalLsMode    = AM_HAL_CLKMGR_XTAL_LS_MODE_XTAL,
+        .sXtalLs.ui32XtalLsFreq = 32768U,
+        .ui32ExtRefClkFreq      = 0U
+    };
+    am_hal_clkmgr_board_info_set(&sClkmgrBoardInfo);
+
+    // Default the config for HFRC and HFRC2 as Free Run clock.
+    am_hal_clkmgr_clock_config(AM_HAL_CLKMGR_CLK_ID_HFRC, AM_HAL_CLKMGR_HFRC_FREQ_FREE_RUN_APPROX_48MHZ, NULL);
+    am_hal_clkmgr_clock_config(AM_HAL_CLKMGR_CLK_ID_HFRC2, AM_HAL_CLKMGR_HFRC2_FREQ_FREE_RUN_APPROX_250MHZ, NULL);
+    am_hal_clkmgr_clock_config(AM_HAL_CLKMGR_CLK_ID_SYSPLL, AM_HAL_UART_PLLCLK_FREQ, NULL);
+
+    am_hal_interrupt_master_enable();
+#endif
 }
 
 void system_start(void)
