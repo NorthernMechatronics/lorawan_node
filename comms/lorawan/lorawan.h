@@ -41,14 +41,14 @@ extern "C" {
 
 /**
  * @brief State types for the LoRaWAN stack:
- *   LORAWAN_STACK_STARTED
- *   LORAWAN_STACK_STOPPED
+ *   LORAWAN_STACK_ENABLE
+ *   LORAWAN_STACK_DISABLE
  * 
  */
 typedef enum
 {
-    LORAWAN_STACK_STARTED,
-    LORAWAN_STACK_STOPPED,
+    LORAWAN_STACK_ENABLE,
+    LORAWAN_STACK_DISABLE,
 } lorawan_stack_state_e;
 
 /**
@@ -70,7 +70,7 @@ typedef enum
     LORAWAN_EVENT_SYS_TIME_UPDATE,
     LORAWAN_EVENT_SLEEP,
     LORAWAN_EVENT_WAKE,
-    LORAWAN_EVENTS
+    LORAWAN_EVENT_MAX
 } lorawan_event_e;
 
 /**
@@ -91,7 +91,7 @@ typedef enum
 {
     LORAWAN_CLASS_A,
     LORAWAN_CLASS_B,
-    LORAWAN_CLASS_C
+    LORAWAN_CLASS_C,
 } lorawan_class_e;
 
 typedef enum
@@ -229,8 +229,8 @@ extern void lorawan_activation_config(lorawan_activation_type_e sType,
  * @brief Set the state of the LoRaWAN stack.
  * 
  * @param eState Valid values are:
- *  - LORAWAN_STACK_STARTED
- *  - LORAWAN_STACK_STOPPED
+ *  - LORAWAN_STACK_ENABLE
+ *  - LORAWAN_STACK_DISABLE
  */
 extern void lorawan_stack_state_set(lorawan_stack_state_e eState);
 
@@ -264,9 +264,9 @@ extern void lorawan_class_set(lorawan_class_e eDeviceClass);
 /**
  * @brief Retrieve the device class
  * 
- * @param peDeviceClass 
+ * @return lorawan_class_e 
  */
-extern void lorawan_class_get(lorawan_class_e *peDeviceClass);
+extern lorawan_class_e lorawan_class_get(void);
 
 /**
  * @brief Request a MAC layer time sync
@@ -404,7 +404,26 @@ extern void lorawan_event_callback_unregister(lorawan_event_e eEvent);
  */
 extern void lorawan_tracing_set(uint32_t ui32Enabled);
 
-extern void lorawan_radio_port_power(bool bPowerOn);
+/**
+ * @brief Request the stack to enter sleep when possible.
+ */
+extern void lorawan_sleep(void);
+
+/**
+ * @brief This is called when the stack wakes up.  User
+ *      should avoid calling this directly but use
+ *      lorawan_event_callback_register to register a
+ *      callback on the wake event.
+ */
+extern void lorawan_event_on_wake(void);
+
+/**
+ * @brief This is called when the stack goes to sleep.
+ *      User should avoid calling this directly but use
+ *      lorawan_event_callback_register to register a
+ *      callback on the sleep event.
+ */
+extern void lorawan_event_on_sleep(void);
 
 #ifdef __cplusplus
 }

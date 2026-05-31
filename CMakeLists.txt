@@ -10,6 +10,7 @@ else()
 endif()
 
 option(CLI_ENABLE "" ON)
+option(CURRENT_MEASUREMENT_ENABLE "" OFF)
 
 option(BSP_NM180100EVB "" OFF)
 option(BSP_NM180410 "" OFF)
@@ -76,6 +77,10 @@ endif()
 
 if (BUILD_LORAWAN)
     add_dependencies(${APPLICATION} lorawan)
+endif()
+
+if (CURRENT_MEASUREMENT_ENABLE)
+    add_definitions(-DCURRENT_MEASUREMENT_ENABLE)
 endif()
 
 target_link_libraries(

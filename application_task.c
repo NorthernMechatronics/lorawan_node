@@ -1,7 +1,7 @@
 /*
  * BSD 3-Clause License
  *
- * Copyright (c) 2024, Northern Mechatronics, Inc.
+ * Copyright (c) 2026, Northern Mechatronics, Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -50,25 +50,25 @@
 #include "application_task_cli.h"
 
 #if defined(BSP_NM180410) || defined(BSP_NM180411)
-    #define APPLICATION_LED AM_BSP_GPIO_LED0
-    #define APPLICATION_LED_TIMER_NUMBER    (1)
-    #define APPLICATION_LED_TIMER_SEGMENT   AM_HAL_CTIMER_TIMERA
-    #define APPLICATION_LED_TIMER_INTERRUPT AM_HAL_CTIMER_INT_TIMERA1C0
+#define APPLICATION_LED                 AM_BSP_GPIO_LED0
+#define APPLICATION_LED_TIMER_NUMBER    (1)
+#define APPLICATION_LED_TIMER_SEGMENT   AM_HAL_CTIMER_TIMERA
+#define APPLICATION_LED_TIMER_INTERRUPT AM_HAL_CTIMER_INT_TIMERA1C0
 #elif defined(BSP_NM180100EVB)
-    #define APPLICATION_LED AM_BSP_GPIO_LED1
-    #define APPLICATION_LED_TIMER_NUMBER    (2)
-    #define APPLICATION_LED_TIMER_SEGMENT   AM_HAL_CTIMER_TIMERB
-    #define APPLICATION_LED_TIMER_INTERRUPT AM_HAL_CTIMER_INT_TIMERB2C0
-#elif defined (BSP_AP510EVB)
-    #define APPLICATION_LED AM_BSP_GPIO_LED0
-    #define APPLICATION_LED_TIMER_NUMBER    (0)
+#define APPLICATION_LED                 AM_BSP_GPIO_LED1
+#define APPLICATION_LED_TIMER_NUMBER    (2)
+#define APPLICATION_LED_TIMER_SEGMENT   AM_HAL_CTIMER_TIMERB
+#define APPLICATION_LED_TIMER_INTERRUPT AM_HAL_CTIMER_INT_TIMERB2C0
+#elif defined(BSP_AP510EVB)
+#define APPLICATION_LED              AM_BSP_GPIO_LED0
+#define APPLICATION_LED_TIMER_NUMBER (0)
 #endif
 
 #define APPLICATION_DEFAULT_LORAWAN_CLASS LORAWAN_CLASS_A
 #define APPLICATION_QUEUE_MAX_SIZE        (10)
 #define APPLICATION_RX_BUFFER_MAX_SIZE    (256)
 
-#define LORAWAN_PM_ENABLE   1
+#define LORAWAN_PM_ENABLE 1
 
 typedef enum
 {
@@ -90,7 +90,6 @@ typedef struct
 
 static uint8_t application_rx_buffer[APPLICATION_RX_BUFFER_MAX_SIZE];
 static application_rx_packet_t application_rx_packet;
-static volatile uint32_t lorawan_joining;
 
 static TaskHandle_t application_task_handle;
 static QueueHandle_t application_queue_handle;
@@ -98,9 +97,6 @@ static uint32_t application_led_handle;
 
 static void on_lorawan_join_request(LmHandlerJoinParams_t *params)
 {
-    // Reset the joining flag.  It will be set
-    // in the MLME Request callback.
-    lorawan_joining = 0;
     if (params->Status == LORAMAC_HANDLER_ERROR)
     {
         lorawan_join();
@@ -111,10 +107,7 @@ static void on_lorawan_join_request(LmHandlerJoinParams_t *params)
         lorawan_request_time_sync();
 
         led_command_t command = {
-            .ui32Handle = application_led_handle,
-            .ui32Id = LED_EFFECT_PULSE2,
-            .ui32Repeat = 1
-        };
+            .ui32Handle = application_led_handle, .ui32Id = LED_EFFECT_PULSE2, .ui32Repeat = 1};
         led_send(&command);
     }
 }
@@ -135,6 +128,7 @@ static void on_lorawan_receive(LmHandlerAppData_t *data, LmHandlerRxParams_t *pa
         return;
     }
 
+    // Deep-copy the received data into a local buffer
     application_rx_packet.counter = params->DownlinkCounter;
     application_rx_packet.port = data->Port;
     application_rx_packet.slot = params->RxSlot;
@@ -146,9 +140,21 @@ static void on_lorawan_receive(LmHandlerAppData_t *data, LmHandlerRxParams_t *pa
     memcpy(application_rx_buffer, data->Buffer, data->BufferSize);
 
     // This is executed within the LoRaWAN transport layer context,
-    // do not block.  In this example, we timeout in 100ms if the queue is full.
+    // do not block.  In this example, we timeout in 10ms if the queue is full.
+    // Adjust or remove the timeout (set it to zero) to accommodate application
+    // requirements.
     msg = APP_MSG_RX;
-    xQueueSend(application_queue_handle, &msg, pdMS_TO_TICKS(100));
+    xQueueSend(application_queue_handle, &msg, pdMS_TO_TICKS(10));
+}
+
+static void on_lorawan_mcps_request(LoRaMacStatus_t status, McpsReq_t *mcps, TimerTime_t delay)
+{
+    if (status == LORAMAC_STATUS_NO_CHANNEL_FOUND)
+    {
+        am_util_stdio_printf("on_lorawan_mcps_request: no channel found\r\n");
+
+        // trigger a re-join or implement other error handling here.
+    }
 }
 
 static void on_lorawan_mlme_request(LoRaMacStatus_t status, MlmeReq_t *mlme, TimerTime_t delay)
@@ -158,39 +164,39 @@ static void on_lorawan_mlme_request(LoRaMacStatus_t status, MlmeReq_t *mlme, Tim
         if (status == LORAMAC_STATUS_DUTYCYCLE_RESTRICTED)
         {
             led_command_t command = {
-                .ui32Handle = application_led_handle,
-                .ui32Id = LED_EFFECT_PULSE1,
-                .ui32Repeat = 1
-            };
+                .ui32Handle = application_led_handle, .ui32Id = LED_EFFECT_PULSE1, .ui32Repeat = 1};
             led_send(&command);
-            lorawan_joining = 0;
         }
         else
         {
-            led_command_t command = {
-                .ui32Handle = application_led_handle,
-                .ui32Id = LED_EFFECT_BREATHING,
-                .ui32Repeat = 0
-            };
+            led_command_t command = {.ui32Handle = application_led_handle,
+                                     .ui32Id = LED_EFFECT_BREATHING,
+                                     .ui32Repeat = 0};
             led_send(&command);
-            lorawan_joining = 1;
         }
     }
 }
 
-static void on_lorawan_sleep(LmHandlerNvmContextStates_t state, uint16_t size)
+static void on_lorawan_nvm_data_change(LmHandlerNvmContextStates_t sState, uint16_t ui16Size)
 {
-#if defined(BSP_NM180410) || defined(BSP_NM180411)
-    if (lorawan_joining)
+    lorawan_class_e lorawan_class;
+
+    lorawan_class = lorawan_class_get();
+    if (lorawan_class == LORAWAN_CLASS_C)
     {
         return;
     }
 
-    if (state == LORAMAC_HANDLER_NVM_STORE)
+    if (sState == LORAMAC_HANDLER_NVM_STORE)
     {
-        lorawan_radio_port_power(false);
-        am_hal_gpio_state_write(AM_BSP_GPIO_PETAL_CORE_nLORA_EN, AM_HAL_GPIO_OUTPUT_SET);
+        lorawan_sleep();
     }
+}
+
+static void on_lorawan_sleep(void)
+{
+#if defined(BSP_NM180410) || defined(BSP_NM180411)
+    am_hal_gpio_state_write(AM_BSP_GPIO_PETAL_CORE_nLORA_EN, AM_HAL_GPIO_OUTPUT_SET);
 #endif
 }
 
@@ -198,7 +204,28 @@ static void on_lorawan_wake(void)
 {
 #if defined(BSP_NM180410) || defined(BSP_NM180411)
     am_hal_gpio_state_write(AM_BSP_GPIO_PETAL_CORE_nLORA_EN, AM_HAL_GPIO_OUTPUT_CLEAR);
+
+    // This function is executed in the lorawan_task context.  We stabilize the
+    // radio power rail with a spinning delay to prevent the radio from
+    // further processing without using a critical block.  This allows other
+    // radios to preempt the lorawan_task without impacting LoRaWAN operations.
+    am_util_delay_ms(1);
 #endif
+}
+
+static void on_lorawan_class_change(DeviceClass_t eDeviceClass)
+{
+    if (eDeviceClass == CLASS_C)
+    {
+        lorawan_event_callback_register(LORAWAN_EVENT_SLEEP, NULL);
+        lorawan_event_callback_register(LORAWAN_EVENT_WAKE, NULL);
+    }
+    else
+    {
+        lorawan_event_callback_register(LORAWAN_EVENT_SLEEP, on_lorawan_sleep);
+        lorawan_event_callback_register(LORAWAN_EVENT_WAKE, on_lorawan_wake);
+        lorawan_sleep();
+    }
 }
 
 static void on_button_pressed(void)
@@ -206,6 +233,21 @@ static void on_button_pressed(void)
     // This callback executes in the button task context and not from an ISR.
     application_message_t msg = APP_MSG_BUTTON_PRESSED;
     xQueueSend(application_queue_handle, &msg, pdMS_TO_TICKS(100));
+}
+
+// Disable the SWD port for measuring current draw on the Petal Core.
+// This is required since the pull-up and pull-down for the clock and data lines
+// are located on the Petal Development board.  If the SWD port remains on without
+// the pull-up and pull-down, the additional current draw can exceed 90uA.
+//
+// We also do not disable the port automatically after boot as we cannot program
+// the chip if the SWD port is disabled.
+static void on_swd_disabled(void)
+{
+    // This callback executes in the button task context and not from an ISR.
+    am_hal_gpio_pinconfig(AM_BSP_GPIO_SWDCK, g_AM_HAL_GPIO_DISABLE);
+    am_hal_gpio_pinconfig(AM_BSP_GPIO_SWDIO, g_AM_HAL_GPIO_DISABLE);
+    am_hal_gpio_pinconfig(AM_BSP_GPIO_ITM_SWO, g_AM_HAL_GPIO_DISABLE);
 }
 
 #if defined(BSP_NM180100EVB) || defined(BSP_NM180410) || defined(BSP_NM180411)
@@ -257,24 +299,34 @@ static void process_button_press(void)
     //   Port: 1
     //   ACK:  0  (0 for no acknowledgment, 1 for acknowledgment)
     //   Payload Size: 1 byte
-    //   Payload: "B"
-    lorawan_transmit(1, 0, 1, "B");
+    //   Payload: "1"
+    lorawan_transmit(1, 0, 1, "1");
 }
 
 static void setup_button(void)
 {
     uint32_t handle;
     button_config(&handle, AM_BSP_GPIO_BUTTON0, g_AM_BSP_GPIO_BUTTON0, 1);
-    
+
     // The following register a single short press sequence to the button.
     // Other press sequences are possible.  For example, a two presses sequence
     // with a short press first followed by a long press would be
-    // 
+    //
     // button_sequence_register(handle, 2, 0b10, on_button_pressed);
     //
     // In general, the order of the sequence starts from LSB to MSB;
     // 0 being a short press and 1 being a long press.
+
+    // A single press to trigger a transmit. In this example, we
+    // register both a short or a long press to accommodate user variations.
     button_sequence_register(handle, 1, 0b0, on_button_pressed);
+    button_sequence_register(handle, 1, 0b1, on_button_pressed);
+
+    // A double press to disable the SWD port for current measurement.
+    button_sequence_register(handle, 2, 0b00, on_swd_disabled);
+    button_sequence_register(handle, 2, 0b01, on_swd_disabled);
+    button_sequence_register(handle, 2, 0b10, on_swd_disabled);
+    button_sequence_register(handle, 2, 0b11, on_swd_disabled);
 }
 
 static void setup_led(void)
@@ -282,18 +334,18 @@ static void setup_led(void)
 #if defined(BSP_NM180100EVB) || defined(BSP_NM180410) || defined(BSP_NM180411)
     // Configure the LED that is connected to a GPIO with CTIMER output.
     const led_timer_config_t led_cfg = {
-        .ui32Number    = APPLICATION_LED_TIMER_NUMBER,
-        .ui32Segment   = APPLICATION_LED_TIMER_SEGMENT,
+        .ui32Number = APPLICATION_LED_TIMER_NUMBER,
+        .ui32Segment = APPLICATION_LED_TIMER_SEGMENT,
         .ui32Interrupt = APPLICATION_LED_TIMER_INTERRUPT,
-        .ui32ActiveLow    = 0,
-        .ui32Pin       = APPLICATION_LED,
+        .ui32ActiveLow = 0,
+        .ui32Pin = APPLICATION_LED,
         .pfnInterruptService = on_led_ctimer,
     };
 #elif defined(BSP_AP510EVB)
     const led_timer_config_t led_cfg = {
-        .ui32Number    = APPLICATION_LED_TIMER_NUMBER,
-        .ui32ActiveLow    = 1,
-        .ui32Pin       = APPLICATION_LED,
+        .ui32Number = APPLICATION_LED_TIMER_NUMBER,
+        .ui32ActiveLow = 1,
+        .ui32Pin = APPLICATION_LED,
         .pfnInterruptService = on_led_timer,
     };
 
@@ -304,7 +356,6 @@ static void setup_led(void)
 
 static void setup_lorawan(void)
 {
-    lorawan_joining = 0;
     lorawan_tracing_set(1);
 
     lorawan_network_config(LORAWAN_REGION_US915, LORAWAN_DATARATE_0, true, true);
@@ -318,24 +369,26 @@ static void setup_lorawan(void)
     // While callbacks are executed outside of interrupt context, they are
     // called by the LoRaWAN stack transport layer.  Avoid blocking or
     // performing excessive processing in these callbacks.
-    lorawan_event_callback_register(LORAWAN_EVENT_MAC_MLME_REQUEST,
-                                    on_lorawan_mlme_request);
-    lorawan_event_callback_register(LORAWAN_EVENT_JOIN_REQUEST,
-                                    on_lorawan_join_request);
-    lorawan_event_callback_register(LORAWAN_EVENT_RX_DATA,
-                                    on_lorawan_receive);
-    
+    lorawan_event_callback_register(LORAWAN_EVENT_MAC_MLME_REQUEST, on_lorawan_mlme_request);
+    lorawan_event_callback_register(LORAWAN_EVENT_JOIN_REQUEST, on_lorawan_join_request);
+    lorawan_event_callback_register(LORAWAN_EVENT_RX_DATA, on_lorawan_receive);
+    lorawan_event_callback_register(LORAWAN_EVENT_MAC_MCPS_REQUEST, on_lorawan_mcps_request);
+
 #if (LORAWAN_PM_ENABLE == 1)
-    lorawan_event_callback_register(LORAWAN_EVENT_SLEEP,
-                                    on_lorawan_sleep);
-    lorawan_event_callback_register(LORAWAN_EVENT_WAKE,
-                                    on_lorawan_wake);
+    lorawan_event_callback_register(LORAWAN_EVENT_NVM_DATA_CHANGE, on_lorawan_nvm_data_change);
+    lorawan_event_callback_register(LORAWAN_EVENT_CLASS_CHANGE, on_lorawan_class_change);
+    lorawan_event_callback_register(LORAWAN_EVENT_SLEEP, on_lorawan_sleep);
+    lorawan_event_callback_register(LORAWAN_EVENT_WAKE, on_lorawan_wake);
+#else
+    // In this example, if we to elect to disable power management by the
+    // stack, then we just keep the radio on all the time.
+    am_hal_gpio_state_write(AM_BSP_GPIO_PETAL_CORE_nLORA_EN, AM_HAL_GPIO_OUTPUT_CLEAR);
 #endif
 
     // Start the LoRaWAN stack.
-    // There is no need to explicitly turn on the radio,
-    // radio power management is handled by the stack.
-    lorawan_stack_state_set(LORAWAN_STACK_STARTED);
+    // There is no need to explicitly turn the radio on or off,
+    // radio power management is handled by the stack if enabled.
+    lorawan_stack_state_set(LORAWAN_STACK_ENABLE);
 
     // In the event of a reboot, check the join context in flash.
     // If the device had already joined the network, switch to the
@@ -348,6 +401,7 @@ static void setup_lorawan(void)
 
 static void application_task_setup(void)
 {
+#if !defined(CURRENT_MEASUREMENT_ENABLE)
 #if defined(BSP_NM180100EVB) || (BSP_NM180410) || defined(BSP_NM180411)
     am_hal_gpio_pinconfig(AM_BSP_GPIO_LED0, g_AM_BSP_GPIO_LED0);
     am_hal_gpio_state_write(AM_BSP_GPIO_LED0, AM_HAL_GPIO_OUTPUT_CLEAR);
@@ -373,6 +427,15 @@ static void application_task_setup(void)
     am_hal_gpio_pinconfig(AM_BSP_GPIO_LED2, g_AM_BSP_GPIO_LED2);
     am_hal_gpio_state_write(AM_BSP_GPIO_LED2, AM_HAL_GPIO_OUTPUT_SET);
 #endif
+#else
+#if defined(BSP_NM180100EVB) || (BSP_NM180410) || defined(BSP_NM180411)
+    am_hal_gpio_pinconfig(AM_BSP_GPIO_LED0, g_AM_BSP_GPIO_LED0);
+    am_hal_gpio_state_write(AM_BSP_GPIO_LED0, AM_HAL_GPIO_OUTPUT_CLEAR);
+#elif defined(BSP_AP510EVB)
+    am_hal_gpio_pinconfig(AM_BSP_GPIO_LED0, g_AM_BSP_GPIO_LED0);
+    am_hal_gpio_state_write(AM_BSP_GPIO_LED0, AM_HAL_GPIO_OUTPUT_SET);
+#endif
+#endif
 
 // The Petal ecosystem has the ability to shutdown the LoRa radio.  In addition,
 // the Petal development board has the ability to shutdown the I/O level shifters
@@ -386,7 +449,9 @@ static void application_task_setup(void)
 #endif
 
     setup_button();
+#if !defined(CURRENT_MEASUREMENT_ENABLE)
     setup_led();
+#endif
     setup_lorawan();
 }
 
@@ -394,12 +459,7 @@ static void application_task_loop(void)
 {
     application_message_t msg;
 
-    // Wait for 1s and then toggle the LED.  Change the delay to portMAX_DELAY in
-    // production for power savings if LED indicator is not used:
-    //
-    //   xQueueReceive(application_queue_handle, &msg, portMAX_DELAY)
-    //
-    if (xQueueReceive(application_queue_handle, &msg, pdMS_TO_TICKS(1000)) == pdPASS)
+    if (xQueueReceive(application_queue_handle, &msg, portMAX_DELAY) == pdPASS)
     {
         switch (msg)
         {
@@ -414,11 +474,6 @@ static void application_task_loop(void)
         default:
             break;
         }
-    }
-
-    if (led_status_get(application_led_handle) == LED_STATUS_IDLE)
-    {
-        am_hal_gpio_state_write(AM_BSP_GPIO_LED1, AM_HAL_GPIO_OUTPUT_TOGGLE);
     }
 }
 

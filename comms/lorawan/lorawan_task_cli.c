@@ -175,7 +175,7 @@ static void lorawan_task_cli_class(char *pui8OutBuffer, size_t argc, char **argv
         {
             am_util_stdio_printf("\n\rCurrent Class: ");
 
-            lorawan_class_get(&cls);
+            cls = lorawan_class_get();
             switch (cls)
             {
             case LORAWAN_CLASS_A:
@@ -397,7 +397,7 @@ static void lorawan_task_cli_send(char *pui8OutBuffer, size_t argc, char **argv)
 static void lorawan_task_cli_status(char *pui8OutBuffer, size_t argc, char **argv)
 {
     lorawan_class_e cls;
-    lorawan_class_get(&cls);
+    cls = lorawan_class_get();
 
     am_util_stdio_printf("\n\r");
     am_util_stdio_printf("Current Class: ");
@@ -494,6 +494,18 @@ lorawan_task_cli_entry(char *pui8OutBuffer, size_t ui32OutBufferLength, const ch
     else if (strcmp(argv[1], "status") == 0)
     {
         lorawan_task_cli_status(pui8OutBuffer, argc, argv);
+    }
+    else if (strcmp(argv[1], "sleep") == 0)
+    {
+        lorawan_command_t command;
+        command.eCommand = LORAWAN_SLEEP;
+        lorawan_send_command(&command);
+    }
+    else if (strcmp(argv[1], "wake") == 0)
+    {
+        lorawan_command_t command;
+        command.eCommand = LORAWAN_WAKE;
+        lorawan_send_command(&command);
     }
     else
     {

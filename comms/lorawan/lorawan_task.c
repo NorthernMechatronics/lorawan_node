@@ -43,7 +43,6 @@
 
 #include <FreeRTOS.h>
 #include <queue.h>
-#include <timers.h>
 
 #include <LmHandler.h>
 #include <LmhpClockSync.h>
@@ -59,14 +58,12 @@
 #include "lorawan_task.h"
 #include "lorawan_task_cli.h"
 
-extern void *SX126xHandle;
 extern CommissioningParams_t CommissioningParams;
 extern uint32_t LmAbpLrWanVersion;
 
 volatile lorawan_stack_state_e lorawan_stack_state;
 uint32_t lorawan_tracing_enabled;
 
-#define LORAWAN_SPI_PORT_TIMEOUT 8000
 #define LM_BUFFER_SIZE           242
 static uint8_t psLmDataBuffer[LM_BUFFER_SIZE];
 
@@ -78,7 +75,6 @@ typedef struct
     uint8_t *pui8Data;
 } lorawan_tx_packet_t;
 
-static uint32_t radio_port_powered;
 static uint32_t lorawan_mac_pending;
 
 static TaskHandle_t lorawan_task_handle;
@@ -89,59 +85,27 @@ static LmHandlerParams_t lmh_parameters;
 static LmHandlerCallbacks_t lmh_callbacks;
 static LmhpFragmentationParams_t lmhp_fragmentation_parameters;
 
-void lorawan_radio_port_power(bool bPowerOn)
-{
-    if (bPowerOn)
-    {
-        if (radio_port_powered == false)
-        {
-            BoardInitMcu();
-            radio_port_powered = true;
-        }
-    }
-    else
-    {
-        if (radio_port_powered == true)
-        {
-            BoardDeInitMcu();
-            radio_port_powered = false;
-        }
-    }
-}
-
-static void lorawan_task_on_sleep()
-{
-    if (Radio.GetStatus() == RF_IDLE)
-    {
-        typedef void (*callback_t)(void);
-        callback_t callback = (callback_t)lorawan_event_callback_list[LORAWAN_EVENT_SLEEP];
-        if (callback)
-        {
-            callback();
-        }
-    }
-}
-
-void lorawan_task_wake()
+void lorawan_task_notify(void)
 {
     BaseType_t xHigherPriorityTaskWoken;
 
+    if (xPortIsInsideInterrupt() == pdTRUE)
+    {
+        xHigherPriorityTaskWoken = pdFALSE;
+        vTaskNotifyGiveFromISR(lorawan_task_handle, &xHigherPriorityTaskWoken);
+        portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+    }
+    else
+    {
+        xTaskNotifyGive(lorawan_task_handle);
+    }
+}
+
+void lorawan_task_wake(void)
+{
     lorawan_mac_pending = 1;
 
-    // we power up the radio here as the LoRaWAN stack performs chip access
-    // within an IRQ.
-    typedef void (*callback_t)(void);
-    callback_t callback = (callback_t)lorawan_event_callback_list[LORAWAN_EVENT_WAKE];
-    if (callback)
-    {
-        callback();
-    }
-
-    if (radio_port_powered == false)
-    {
-        BoardInitMcu();
-        radio_port_powered = true;
-    }
+    lorawan_event_on_wake();
 
     if (lorawan_task_handle == NULL)
     {
@@ -156,26 +120,27 @@ void lorawan_task_wake()
     LoRaMacMibGetRequestConfirm(&mibReq);
     LoRaMacMibSetRequestConfirm(&mibReq);
 
-    if (xPortIsInsideInterrupt() == pdTRUE)
-    {
-        xHigherPriorityTaskWoken = pdFALSE;
-        vTaskNotifyGiveFromISR(lorawan_task_handle, &xHigherPriorityTaskWoken);
-        portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
-    }
-    else
-    {
-        xTaskNotifyGive(lorawan_task_handle);
-    }
+    lorawan_task_notify();
 }
 
 void lorawan_wake_on_radio_irq()
 {
-    lorawan_task_wake();
+    lorawan_task_notify();
 }
 
 void lorawan_wake_on_timer_irq()
 {
-    lorawan_task_wake();
+    lorawan_task_notify();
+}
+
+void lorawan_task_on_class_change(DeviceClass_t device_class)
+{
+    if (device_class == CLASS_C)
+    {
+        lorawan_task_wake();
+    }
+
+    LmHandlerRequestClass(device_class);
 }
 
 static void on_mac_process_notify()
@@ -187,90 +152,107 @@ static void lorawan_task_handle_command()
 {
     lorawan_command_t command;
 
-    // do not block on message receive as the LoRa MAC state machine decides
-    // when it is appropriate to sleep.  We also do not explicitly go to
-    // sleep directly and simply do a task yield.  This allows other timing
-    // critical radios such as BLE to run their state machines.
-    if (xQueueReceive(command_queue, &command, 0) == pdPASS)
+    // do not block on application layer message receive as the LoRa MAC
+    // state machine decides when it is appropriate to sleep.
+    // We also do not explicitly go to sleep directly and simply do a
+    // task yield.  This allows other timing critical radios such as BLE
+    // to run their state machines.
+    if (xQueueReceive(command_queue, &command, 0) == pdFALSE)
     {
-        if (command.eCommand == LORAWAN_START)
-        {
-            lorawan_stack_state_set(LORAWAN_STACK_STARTED);
-            return;
-        }
+        return;
+    }
 
-        if (lorawan_stack_state == LORAWAN_STACK_STARTED)
-        {
-            switch (command.eCommand)
-            {
-            case LORAWAN_STOP:
-                lorawan_stack_state_set(LORAWAN_STACK_STOPPED);
-                break;
-            case LORAWAN_JOIN:
-                LmHandlerJoin();
-                break;
-            case LORAWAN_SYNC_APP:
-                LmhpClockSyncAppTimeReq();
-                break;
-            case LORAWAN_SYNC_MAC:
-                LmHandlerDeviceTimeReq();
-                break;
-            case LORAWAN_CLASS_SET:
-                LmHandlerRequestClass((DeviceClass_t)command.pvParameters);
-                break;
-            default:
-                break;
-            }
-        }
+    if (command.eCommand == LORAWAN_START)
+    {
+        lorawan_stack_state_set(LORAWAN_STACK_ENABLE);
+        return;
+    }
+
+    if (command.eCommand == LORAWAN_STOP)
+    {
+        lorawan_stack_state_set(LORAWAN_STACK_DISABLE);
+        return;
+    }
+
+    if (lorawan_stack_state == LORAWAN_STACK_DISABLE)
+    {
+        return;
+    }
+
+    switch (command.eCommand)
+    {
+    case LORAWAN_JOIN:
+        lorawan_task_wake();
+        LmHandlerJoin();
+        break;
+    case LORAWAN_SYNC_APP:
+        LmhpClockSyncAppTimeReq();
+        break;
+    case LORAWAN_SYNC_MAC:
+        LmHandlerDeviceTimeReq();
+        break;
+    case LORAWAN_CLASS_SET:
+        lorawan_task_on_class_change((DeviceClass_t)command.pvParameters);
+        break;
+    case LORAWAN_SLEEP:
+        lorawan_event_on_sleep();
+        break;
+    case LORAWAN_WAKE:
+        lorawan_task_wake();
+        break;
+    default:
+        break;
     }
 }
 
 static void lorawan_task_handle_uplink()
 {
     lorawan_tx_packet_t packet;
-    if (xQueuePeek(transmit_queue, &packet, 0) == pdPASS)
+    if (xQueuePeek(transmit_queue, &packet, 0) == pdFALSE)
     {
-        if (LmHandlerIsBusy() == true)
-        {
-            return;
-        }
-
-        xQueueReceive(transmit_queue, &packet, 0);
-
-        LmHandlerAppData_t app_data;
-
-        if (packet.ui32Length > 0)
-        {
-            memcpy(psLmDataBuffer, packet.pui8Data, packet.ui32Length);
-            vPortFree(packet.pui8Data);
-        }
-        app_data.Port = packet.ui32Port;
-        app_data.BufferSize = packet.ui32Length;
-        app_data.Buffer = psLmDataBuffer;
-
-        // The LoRaWAN spec does not prevent the user from 
-        // transmitting during a multicast session.  However,
-        // doing so will impact downlink messages from the LNS
-        // during a multicast.  We default to dequeue and return
-        // if we are in a multicast session.
-        if (LmhpRemoteMcastSessionStateStarted())
-        {
-            return;
-        }
-
-        LmHandlerSend(&app_data, packet.tType);
+        return;
     }
+
+    if (LmHandlerIsBusy() == true)
+    {
+        return;
+    }
+
+    xQueueReceive(transmit_queue, &packet, 0);
+
+    LmHandlerAppData_t app_data;
+
+    if (packet.ui32Length > 0)
+    {
+        memcpy(psLmDataBuffer, packet.pui8Data, packet.ui32Length);
+        vPortFree(packet.pui8Data);
+    }
+    app_data.Port = packet.ui32Port;
+    app_data.BufferSize = packet.ui32Length;
+    app_data.Buffer = psLmDataBuffer;
+
+    // The LoRaWAN spec does not prevent the user from
+    // transmitting during a multicast session.  However,
+    // doing so will impact downlink messages from the LNS
+    // during a multicast.  We default to dequeue and return
+    // if we are in a multicast session.
+    if (LmhpRemoteMcastSessionStateStarted())
+    {
+        return;
+    }
+
+    LmHandlerSend(&app_data, packet.tType);
 }
 
 static void lorawan_task(void *pvParameters)
 {
     lorawan_mac_pending = 0;
-    lorawan_stack_state = LORAWAN_STACK_STOPPED;
+    lorawan_stack_state = LORAWAN_STACK_DISABLE;
     lorawan_task_cli_register();
 
     while (1)
     {
-        if (lorawan_stack_state == LORAWAN_STACK_STARTED)
+        if (lorawan_stack_state == LORAWAN_STACK_ENABLE)
         {
             LmHandlerProcess();
             lorawan_task_handle_uplink();
@@ -284,7 +266,6 @@ static void lorawan_task(void *pvParameters)
         }
         else
         {
-            lorawan_task_on_sleep();
             ulTaskNotifyTake(pdFALSE, portMAX_DELAY);
         }
     }
@@ -297,7 +278,7 @@ void lorawan_network_config(lorawan_region_e eRegion,
 {
     LoRaMacRegion_t region;
 
-    switch(eRegion)
+    switch (eRegion)
     {
     case LORAWAN_REGION_AS923:
         region = LORAMAC_REGION_AS923;
@@ -363,85 +344,81 @@ void lorawan_stack_state_set(lorawan_stack_state_e eState)
 {
     switch (eState)
     {
-    case LORAWAN_STACK_STARTED:
-        if (lorawan_stack_state == LORAWAN_STACK_STOPPED)
+    case LORAWAN_STACK_ENABLE:
+        if (lorawan_stack_state == LORAWAN_STACK_ENABLE)
         {
-            typedef void (*callback_t)(void);
-            callback_t callback = (callback_t)lorawan_event_callback_list[LORAWAN_EVENT_WAKE];
-            if (callback)
-            {
-                callback();
-            }
-
-            BoardInitMcu();
-            BoardInitPeriph();
-
-            lmh_parameters.DataBufferMaxSize = LM_BUFFER_SIZE;
-            lmh_parameters.DataBuffer = psLmDataBuffer;
-
-            switch (lmh_parameters.Region)
-            {
-            case LORAMAC_REGION_EU868:
-            case LORAMAC_REGION_RU864:
-            case LORAMAC_REGION_CN779:
-                lmh_parameters.DutyCycleEnabled = true;
-                break;
-            default:
-                lmh_parameters.DutyCycleEnabled = false;
-                break;
-            }
-
-            lmh_callbacks_setup(&lmh_callbacks);
-            lmh_callbacks.OnMacProcess = on_mac_process_notify;
-
-            LmHandlerInit(&lmh_callbacks, &lmh_parameters);
-            LmHandlerSetSystemMaxRxError(20);
-
-            LmhpComplianceParams_t lmhp_compliance_parameters;
-            LmHandlerPackageRegister(PACKAGE_ID_COMPLIANCE, &lmhp_compliance_parameters);
-            LmHandlerPackageRegister(PACKAGE_ID_CLOCK_SYNC, NULL);
-            LmHandlerPackageRegister(PACKAGE_ID_REMOTE_MCAST_SETUP, NULL);
-
-            lmhp_fragmentation_setup(&lmhp_fragmentation_parameters);
-            LmHandlerPackageRegister(PACKAGE_ID_FRAGMENTATION, &lmhp_fragmentation_parameters);
-
-            lorawan_stack_state = LORAWAN_STACK_STARTED;
-            if (LmHandlerJoinStatus() == LORAMAC_HANDLER_SET)
-            {
-                LmHandlerDeviceTimeReq();
-            }
-            Radio.Sleep();
-
-            radio_port_powered = true;
-            lorawan_task_wake();
+            return;
         }
+
+        // Board specific initialisation is performed by
+        // the user callback.
+        lorawan_event_on_wake();
+
+        // Initialise the RTC and EEPROM emulation for the
+        // session context storage.
+        BoardInitPeriph();
+
+        lmh_parameters.DataBufferMaxSize = LM_BUFFER_SIZE;
+        lmh_parameters.DataBuffer = psLmDataBuffer;
+
+        switch (lmh_parameters.Region)
+        {
+        case LORAMAC_REGION_EU868:
+        case LORAMAC_REGION_RU864:
+        case LORAMAC_REGION_CN779:
+            lmh_parameters.DutyCycleEnabled = true;
+            break;
+        default:
+            lmh_parameters.DutyCycleEnabled = false;
+            break;
+        }
+
+        lmh_callbacks_setup(&lmh_callbacks);
+        lmh_callbacks.OnMacProcess = on_mac_process_notify;
+
+        LmHandlerInit(&lmh_callbacks, &lmh_parameters);
+        LmHandlerSetSystemMaxRxError(20);
+
+        LmhpComplianceParams_t lmhp_compliance_parameters;
+        LmHandlerPackageRegister(PACKAGE_ID_COMPLIANCE, &lmhp_compliance_parameters);
+        LmHandlerPackageRegister(PACKAGE_ID_CLOCK_SYNC, NULL);
+        LmHandlerPackageRegister(PACKAGE_ID_REMOTE_MCAST_SETUP, NULL);
+
+        lmhp_fragmentation_setup(&lmhp_fragmentation_parameters);
+        LmHandlerPackageRegister(PACKAGE_ID_FRAGMENTATION, &lmhp_fragmentation_parameters);
+
+        if (LmHandlerJoinStatus() == LORAMAC_HANDLER_SET)
+        {
+            // Automatically append a MAC layer timesync request during the next transmission
+            // everytime the stack is started or restarted.  Actual timesync happens after
+            // the next transmission.
+            //
+            // Comment out the line below if this behaviour is not desirable.
+            LmHandlerDeviceTimeReq();
+        }
+
+        // Once the stack is initialised, we go back to sleep.
+        lorawan_event_on_sleep();
+
+        lorawan_stack_state = LORAWAN_STACK_ENABLE;
         break;
 
-    case LORAWAN_STACK_STOPPED:
-        if (lorawan_stack_state == LORAWAN_STACK_STARTED)
+    case LORAWAN_STACK_DISABLE:
+        if (lorawan_stack_state == LORAWAN_STACK_DISABLE)
         {
-            typedef void (*callback_t)(void);
-            callback_t callback = (callback_t)lorawan_event_callback_list[LORAWAN_EVENT_WAKE];
-            if (callback)
-            {
-                callback();
-            }
-
-            LoRaMacStop();
-            LoRaMacDeInitialization();
-            BoardDeInitMcu();
-            
-            callback = (callback_t)lorawan_event_callback_list[LORAWAN_EVENT_NVM_DATA_CHANGE];
-            if (callback)
-            {
-                callback();
-            }
-
-            xQueueReset(transmit_queue);
-
-            lorawan_stack_state = LORAWAN_STACK_STOPPED;
-            radio_port_powered = false;
+            return;
         }
+
+        lorawan_event_on_wake();
+
+        LoRaMacStop();
+        LoRaMacDeInitialization();
+
+        lorawan_event_on_sleep();
+
+        xQueueReset(transmit_queue);
+
+        lorawan_stack_state = LORAWAN_STACK_DISABLE;
         break;
 
     default:
@@ -456,7 +433,7 @@ void lorawan_stack_state_get(lorawan_stack_state_e *peState)
 
 void lorawan_join()
 {
-    lorawan_command_t command = { .eCommand = LORAWAN_JOIN, .pvParameters = NULL };
+    lorawan_command_t command = {.eCommand = LORAWAN_JOIN, .pvParameters = NULL};
     lorawan_send_command(&command);
 }
 
@@ -487,39 +464,46 @@ void lorawan_class_set(lorawan_class_e eDeviceClass)
     default:
         return;
     }
-    lorawan_command_t command = { .eCommand = LORAWAN_CLASS_SET, .pvParameters = (void *)deviceClass };
+    lorawan_command_t command = {.eCommand = LORAWAN_CLASS_SET,
+                                 .pvParameters = (void *)deviceClass};
     lorawan_send_command(&command);
 }
 
-void lorawan_class_get(lorawan_class_e *peDeviceClass)
+lorawan_class_e lorawan_class_get(void)
 {
     DeviceClass_t deviceClass = LmHandlerGetCurrentClass();
     switch (deviceClass)
     {
     case CLASS_A:
-        *peDeviceClass = LORAWAN_CLASS_A;
+        return LORAWAN_CLASS_A;
         break;
     case CLASS_B:
-        *peDeviceClass = LORAWAN_CLASS_B;
+        return LORAWAN_CLASS_B;
         break;
     case CLASS_C:
-        *peDeviceClass = LORAWAN_CLASS_C;
+        return LORAWAN_CLASS_C;
         break;
     default:
-        return;
     }
+
+    return LORAWAN_CLASS_A;
 }
 
 void lorawan_request_time_sync()
 {
-    lorawan_command_t command = { .eCommand = LORAWAN_SYNC_MAC, .pvParameters = NULL };
+    lorawan_command_t command = {.eCommand = LORAWAN_SYNC_MAC, .pvParameters = NULL};
     lorawan_send_command(&command);
+}
+
+void lorawan_sleep(void)
+{
+    lorawan_event_on_sleep();
 }
 
 void lorawan_send_command(lorawan_command_t *psCommand)
 {
     xQueueSend(command_queue, psCommand, 0);
-    lorawan_task_wake();
+    lorawan_task_notify();
 }
 
 void lorawan_transmit(uint32_t ui32Port, uint32_t ui32Ack, uint32_t ui32Length, uint8_t *pui8Data)

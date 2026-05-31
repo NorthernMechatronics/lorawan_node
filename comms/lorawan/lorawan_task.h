@@ -32,12 +32,14 @@
 #ifndef _LORAWAN_TASK_H_
 #define _LORAWAN_TASK_H_
 
+#include "lorawan.h"
 #include <LmHandler.h>
 #include <LmhpFragmentation.h>
-#include "lorawan.h"
+
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
 #define LORAWAN_COMMAND_QUEUE_MAX_SIZE  (8)
@@ -51,6 +53,8 @@ typedef enum
     LORAWAN_SYNC_APP,
     LORAWAN_SYNC_MAC,
     LORAWAN_CLASS_SET,
+    LORAWAN_SLEEP,
+    LORAWAN_WAKE,
 } lorawan_command_e;
 
 typedef struct
@@ -59,11 +63,12 @@ typedef struct
     void *pvParameters;
 } lorawan_command_t;
 
-extern lorawan_event_callback_t lorawan_event_callback_list[LORAWAN_EVENTS];
+extern lorawan_event_callback_t lorawan_event_callback_list[LORAWAN_EVENT_MAX];
 extern uint32_t lorawan_tracing_enabled;
 
 extern void lorawan_task_create(uint32_t ui32Priority);
 extern void lorawan_task_wake();
+extern void lorawan_task_notify(void);
 
 extern void lmh_callbacks_setup(LmHandlerCallbacks_t *cb);
 extern void lmhp_fragmentation_setup(LmhpFragmentationParams_t *parameters);

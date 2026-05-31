@@ -33,13 +33,20 @@
 #include <am_util.h>
 
 #include <LmHandlerMsgDisplay.h>
+#include <board.h>
+#include <radio.h>
+#include <sx126x-board.h>
+#include <sx126x.h>
+
 
 #include "lorawan_config.h"
 
 #include "lorawan.h"
 #include "lorawan_task.h"
 
-lorawan_event_callback_t lorawan_event_callback_list[LORAWAN_EVENTS];
+lorawan_event_callback_t lorawan_event_callback_list[LORAWAN_EVENT_MAX];
+
+static bool radio_on = false;
 
 static void on_mac_process(void)
 {
@@ -78,7 +85,8 @@ static void on_network_parameters_change(CommissioningParams_t *psParams)
     }
 
     typedef void (*callback_t)(CommissioningParams_t *);
-    callback_t callback = (callback_t)lorawan_event_callback_list[LORAWAN_EVENT_NETWORK_PARAMETERS_CHANGE];
+    callback_t callback =
+        (callback_t)lorawan_event_callback_list[LORAWAN_EVENT_NETWORK_PARAMETERS_CHANGE];
     if (callback)
     {
         callback(psParams);
@@ -180,6 +188,9 @@ static void on_class_change(DeviceClass_t eDeviceClass)
     {
         callback(eDeviceClass);
     }
+
+    // Keep the state machine running to complete the class change.
+    lorawan_task_notify();
 }
 
 static void on_beacon_status_change(LoRaMacHandlerBeaconParams_t *psParams)
@@ -190,7 +201,8 @@ static void on_beacon_status_change(LoRaMacHandlerBeaconParams_t *psParams)
     }
 
     typedef void (*callback_t)(LoRaMacHandlerBeaconParams_t *);
-    callback_t callback = (callback_t)lorawan_event_callback_list[LORAWAN_EVENT_BEACON_STATUS_CHANGE];
+    callback_t callback =
+        (callback_t)lorawan_event_callback_list[LORAWAN_EVENT_BEACON_STATUS_CHANGE];
     if (callback)
     {
         callback(psParams);
@@ -246,4 +258,43 @@ void lorawan_event_callback_unregister(lorawan_event_e eEvent)
 void lorawan_tracing_set(uint32_t ui32Enabled)
 {
     lorawan_tracing_enabled = ui32Enabled;
+}
+
+void lorawan_event_on_wake(void)
+{
+    if (radio_on == true)
+    {
+        return;
+    }
+
+    typedef void (*callback_t)(void);
+    callback_t callback = (callback_t)lorawan_event_callback_list[LORAWAN_EVENT_WAKE];
+    if (callback)
+    {
+        callback();
+    }
+
+    BoardInitMcu();
+    SX126xReset();
+    SX126xWakeup();
+    SX126xIoRfSwitchInit();
+    radio_on = true;
+}
+
+void lorawan_event_on_sleep(void)
+{
+    if (radio_on == false)
+    {
+        return;
+    }
+
+    typedef void (*callback_t)(void);
+    callback_t callback = (callback_t)lorawan_event_callback_list[LORAWAN_EVENT_SLEEP];
+    if (callback)
+    {
+        callback();
+    }
+
+    BoardDeInitMcu();
+    radio_on = false;
 }

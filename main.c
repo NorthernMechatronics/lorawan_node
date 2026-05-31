@@ -191,13 +191,19 @@ void system_setup(void)
 
 void system_start(void)
 {
+#if !defined(CURRENT_MEASUREMENT_ENABLE)
 #if defined(CLI_ENABLE)
     console_task_create(2, CONSOLE_OUTPUT_UART);
+#endif
 #endif
 
     lorawan_task_create(5);
     button_task_create(4);
+
+#if !defined(CURRENT_MEASUREMENT_ENABLE)
     led_task_create(3);
+#endif
+
     application_task_create(1);
 
     //
