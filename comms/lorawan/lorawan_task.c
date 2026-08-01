@@ -135,11 +135,6 @@ void lorawan_wake_on_timer_irq()
 
 void lorawan_task_on_class_change(DeviceClass_t device_class)
 {
-    if (device_class == CLASS_C)
-    {
-        lorawan_task_wake();
-    }
-
     LmHandlerRequestClass(device_class);
 }
 
@@ -495,11 +490,6 @@ void lorawan_request_time_sync()
     lorawan_send_command(&command);
 }
 
-void lorawan_sleep(void)
-{
-    lorawan_event_on_sleep();
-}
-
 void lorawan_send_command(lorawan_command_t *psCommand)
 {
     xQueueSend(command_queue, psCommand, 0);
@@ -534,7 +524,7 @@ void lorawan_transmit(uint32_t ui32Port, uint32_t ui32Ack, uint32_t ui32Length, 
     BaseType_t status = xQueueSend(transmit_queue, &packet, 0);
     if (status == pdTRUE)
     {
-        lorawan_task_wake();
+        lorawan_task_notify();
     }
     else
     {

@@ -75,6 +75,10 @@ extern void lmhp_fragmentation_setup(LmhpFragmentationParams_t *parameters);
 
 extern void lorawan_send_command(lorawan_command_t *psCommand);
 
+extern void lorawan_event_on_sleep(void);
+extern void lorawan_event_on_wake(void);
+
+
 #ifdef __cplusplus
 }
 #endif

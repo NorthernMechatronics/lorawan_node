@@ -70,6 +70,7 @@ typedef enum
     LORAWAN_EVENT_SYS_TIME_UPDATE,
     LORAWAN_EVENT_SLEEP,
     LORAWAN_EVENT_WAKE,
+    LORAWAN_EVENT_TX_START,
     LORAWAN_EVENT_MAX
 } lorawan_event_e;
 
@@ -405,25 +406,9 @@ extern void lorawan_event_callback_unregister(lorawan_event_e eEvent);
 extern void lorawan_tracing_set(uint32_t ui32Enabled);
 
 /**
- * @brief Request the stack to enter sleep when possible.
+ * @brief Get debug messages printing status.
  */
-extern void lorawan_sleep(void);
-
-/**
- * @brief This is called when the stack wakes up.  User
- *      should avoid calling this directly but use
- *      lorawan_event_callback_register to register a
- *      callback on the wake event.
- */
-extern void lorawan_event_on_wake(void);
-
-/**
- * @brief This is called when the stack goes to sleep.
- *      User should avoid calling this directly but use
- *      lorawan_event_callback_register to register a
- *      callback on the sleep event.
- */
-extern void lorawan_event_on_sleep(void);
+extern uint32_t lorawan_tracing_get(void);
 
 #ifdef __cplusplus
 }

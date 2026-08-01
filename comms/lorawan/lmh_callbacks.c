@@ -1,7 +1,7 @@
 /*
  * BSD 3-Clause License
  *
- * Copyright (c) 2022, Northern Mechatronics, Inc.
+ * Copyright (c) 2026, Northern Mechatronics, Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -66,6 +66,15 @@ static void on_nvm_data_change(LmHandlerNvmContextStates_t sState, uint16_t ui16
     {
         am_util_stdio_printf("\r\n");
         DisplayNvmDataChange(sState, ui16Size);
+    }
+
+    if (sState == LORAMAC_HANDLER_NVM_STORE)
+    {
+        lorawan_class_e current_class = lorawan_class_get();
+        if (current_class != LORAWAN_CLASS_C)
+        {
+            lorawan_event_on_sleep();
+        }
     }
 
     typedef void (*callback_t)(LmHandlerNvmContextStates_t, uint16_t);
@@ -227,6 +236,18 @@ static void on_sys_time_update(bool bSynchronized, int32_t ui32TimeCorrection)
     }
 }
 
+static void on_tx_start(void)
+{
+    lorawan_event_on_wake();
+
+    typedef void (*callback_t)(void);
+    callback_t callback = (callback_t)lorawan_event_callback_list[LORAWAN_EVENT_TX_START];
+    if (callback)
+    {
+        callback();
+    }
+}
+
 void lmh_callbacks_setup(LmHandlerCallbacks_t *psCallbacks)
 {
     psCallbacks->GetBatteryLevel = NULL;
@@ -243,6 +264,7 @@ void lmh_callbacks_setup(LmHandlerCallbacks_t *psCallbacks)
     psCallbacks->OnClassChange = on_class_change;
     psCallbacks->OnBeaconStatusChange = on_beacon_status_change;
     psCallbacks->OnSysTimeUpdate = on_sys_time_update;
+    psCallbacks->OnTxStart = on_tx_start;
 }
 
 void lorawan_event_callback_register(lorawan_event_e eEvent, lorawan_event_callback_t pfnHandler)
@@ -258,6 +280,11 @@ void lorawan_event_callback_unregister(lorawan_event_e eEvent)
 void lorawan_tracing_set(uint32_t ui32Enabled)
 {
     lorawan_tracing_enabled = ui32Enabled;
+}
+
+uint32_t lorawan_tracing_get(void)
+{
+    return lorawan_tracing_enabled;
 }
 
 void lorawan_event_on_wake(void)
@@ -278,6 +305,15 @@ void lorawan_event_on_wake(void)
     SX126xReset();
     SX126xWakeup();
     SX126xIoRfSwitchInit();
+
+    // The radio looses the public network value across power cycles.
+    // The value can be retrieved from the MIB.  An MIB Set will
+    // trigger a write to the public network register in the radio.
+    MibRequestConfirm_t mibReq;
+    mibReq.Type = MIB_PUBLIC_NETWORK;
+    LoRaMacMibGetRequestConfirm(&mibReq);
+    LoRaMacMibSetRequestConfirm(&mibReq);
+
     radio_on = true;
 }
 

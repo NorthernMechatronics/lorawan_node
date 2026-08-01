@@ -177,24 +177,13 @@ static void on_lorawan_mlme_request(LoRaMacStatus_t status, MlmeReq_t *mlme, Tim
     }
 }
 
-static void on_lorawan_nvm_data_change(LmHandlerNvmContextStates_t sState, uint16_t ui16Size)
-{
-    lorawan_class_e lorawan_class;
-
-    lorawan_class = lorawan_class_get();
-    if (lorawan_class == LORAWAN_CLASS_C)
-    {
-        return;
-    }
-
-    if (sState == LORAMAC_HANDLER_NVM_STORE)
-    {
-        lorawan_sleep();
-    }
-}
-
 static void on_lorawan_sleep(void)
 {
+    if (lorawan_tracing_get())
+    {
+        am_util_stdio_printf( "\n\r###### ============= RADIO OFF ============= ######\n\r" );
+    }
+
 #if defined(BSP_NM180410) || defined(BSP_NM180411)
     am_hal_gpio_state_write(AM_BSP_GPIO_PETAL_CORE_nLORA_EN, AM_HAL_GPIO_OUTPUT_SET);
 #endif
@@ -202,6 +191,11 @@ static void on_lorawan_sleep(void)
 
 static void on_lorawan_wake(void)
 {
+    if (lorawan_tracing_get())
+    {
+        am_util_stdio_printf( "\n\r###### ============= RADIO ON ============== ######\n\r" );
+    }
+
 #if defined(BSP_NM180410) || defined(BSP_NM180411)
     am_hal_gpio_state_write(AM_BSP_GPIO_PETAL_CORE_nLORA_EN, AM_HAL_GPIO_OUTPUT_CLEAR);
 
@@ -211,21 +205,6 @@ static void on_lorawan_wake(void)
     // radios to preempt the lorawan_task without impacting LoRaWAN operations.
     am_util_delay_ms(1);
 #endif
-}
-
-static void on_lorawan_class_change(DeviceClass_t eDeviceClass)
-{
-    if (eDeviceClass == CLASS_C)
-    {
-        lorawan_event_callback_register(LORAWAN_EVENT_SLEEP, NULL);
-        lorawan_event_callback_register(LORAWAN_EVENT_WAKE, NULL);
-    }
-    else
-    {
-        lorawan_event_callback_register(LORAWAN_EVENT_SLEEP, on_lorawan_sleep);
-        lorawan_event_callback_register(LORAWAN_EVENT_WAKE, on_lorawan_wake);
-        lorawan_sleep();
-    }
 }
 
 static void on_button_pressed(void)
@@ -375,8 +354,6 @@ static void setup_lorawan(void)
     lorawan_event_callback_register(LORAWAN_EVENT_MAC_MCPS_REQUEST, on_lorawan_mcps_request);
 
 #if (LORAWAN_PM_ENABLE == 1)
-    lorawan_event_callback_register(LORAWAN_EVENT_NVM_DATA_CHANGE, on_lorawan_nvm_data_change);
-    lorawan_event_callback_register(LORAWAN_EVENT_CLASS_CHANGE, on_lorawan_class_change);
     lorawan_event_callback_register(LORAWAN_EVENT_SLEEP, on_lorawan_sleep);
     lorawan_event_callback_register(LORAWAN_EVENT_WAKE, on_lorawan_wake);
 #else

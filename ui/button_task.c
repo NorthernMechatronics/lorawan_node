@@ -175,6 +175,8 @@ static button_press_e button_press_classification(uint32_t handle)
         am_hal_gpio_interrupt_control(AM_HAL_GPIO_INT_CHANNEL_0, AM_HAL_GPIO_INT_CTRL_INDV_ENABLE, &button_cfg[handle].pin);
 #endif
 
+        xTimerChangePeriod(button_cfg[handle].timer, pdMS_TO_TICKS(BUTTON_PRESS_GAP_MS), portMAX_DELAY);
+
         return BUTTON_PRESS_SHORT;
     }
 

@@ -239,13 +239,11 @@ the keys (for example, loading keys into INFO0).
 To reduce power consumption, Petal users have full control over the power supply to the LoRa radio (see documentation in [Petal Core schematics](https://northernmechatronics.com/wp-content/uploads/2025/01/SCH-2002965-005-RevB.pdf)
 ).
 
-Four callbacks are implemented in this example to enable LoRa radio power
+Two callbacks are implemented in this example to enable LoRa radio power
 management.  This capability is enabled by default through the macro
 `LORAWAN_PM_ENABLE`:
 
 ```
-on_lorawan_class_change
-on_lorawan_nvm_data_change
 on_lorawan_sleep
 on_lorawan_wake
 ```
@@ -254,10 +252,9 @@ on_lorawan_wake
 up respectively.
 
 The current implementation of the LoRaWAN protocol stack completes each radio
-transaction with
- a write to the session context.  The example includes a
-callback, `on_lorawan_nvm_data_change`, to put the radio to sleep when the
- `LORAMAC_HANDLER_NVM_STORE` event occurs.
+transaction with a write to the session context.  The transport layer puts the
+radio to sleep when the `LORAMAC_HANDLER_NVM_STORE` event occurs in
+`lmh_callbacks.c`.
 
 ### Current Draw Measurement Option
 
